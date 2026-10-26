@@ -51,6 +51,11 @@ def test_role_switch_header_ignored_unless_enabled():
     assert who.role == "dispatcher" and who.role_source == "default"
 
 
+def test_none_sentinel_means_no_role_overrides():
+    assert make_settings(DISPATCH_ROLE_OVERRIDES="none").parsed_role_overrides() == {}
+    assert make_settings(DISPATCH_ROLE_OVERRIDES="").parsed_role_overrides() == {}
+
+
 def test_override_beats_groups_and_default():
     s = make_settings(
         DISPATCH_ALLOW_ROLE_SWITCH=False, DISPATCH_ROLE_OVERRIDES="Boss=manager, bad=root"

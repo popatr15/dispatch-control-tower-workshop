@@ -53,8 +53,11 @@ variables:
     description: Let a manager approve their own expedite request (workshop convenience)
     default: "false"
   role_overrides:
-    description: Optional "user=manager,other=dispatcher" overrides (set at deploy time only)
-    default: ""
+    # Apps env entries with an empty `value` are dropped before deploy, leaving
+    # `{name: ...}` only and failing with "Must specify value or valueFrom".
+    # Use the sentinel "none" (parsed as no overrides) instead of "".
+    description: Optional "user=manager,other=dispatcher" overrides; "none" means unset
+    default: "none"
   label_readers:
     description: UC principal granted SELECT on decision_labels by sync_decisions
     default: account users

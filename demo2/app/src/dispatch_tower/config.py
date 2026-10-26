@@ -49,7 +49,8 @@ class Settings(BaseSettings):
     manager_group: str = Field(default="managers", alias="DISPATCH_MANAGER_GROUP")
     dispatcher_group: str = Field(default="dispatchers", alias="DISPATCH_DISPATCHER_GROUP")
     # "user=manager,other=dispatcher"; set at deploy time, never committed.
-    role_overrides: str = Field(default="", alias="DISPATCH_ROLE_OVERRIDES")
+    # Bundle default is "none" (Apps drop empty env values); treat that as unset.
+    role_overrides: str = Field(default="none", alias="DISPATCH_ROLE_OVERRIDES")
     # Workshop convenience: lets one person play both roles via a UI toggle.
     allow_role_switch: bool = Field(default=False, alias="DISPATCH_ALLOW_ROLE_SWITCH")
     allow_self_approval: bool = Field(default=False, alias="DISPATCH_ALLOW_SELF_APPROVAL")
@@ -70,8 +71,11 @@ class Settings(BaseSettings):
         return value
 
     def parsed_role_overrides(self) -> dict[str, str]:
+        raw = self.role_overrides.strip()
+        if not raw or raw.lower() == "none":
+            return {}
         out: dict[str, str] = {}
-        for item in self.role_overrides.split(","):
+        for item in raw.split(","):
             if "=" not in item:
                 continue
             user, role = (part.strip() for part in item.split("=", 1))

@@ -80,7 +80,8 @@ Lakebase database on first start, so it never collides with the tables
 
 Optional variables: `app_name` (default `dispatch-tower`), `allow_role_switch`
 (`true` in dev), `allow_self_approval` (`true` in dev), `role_overrides`
-(`"user=manager,other=dispatcher"`, set at deploy time only), `label_readers`
+(`"user=manager,other=dispatcher"`; default `none` means unset — empty string
+cannot be passed through Apps env), `label_readers`
 (UC principal granted SELECT on `decision_labels`, default `account users`;
 the job refuses any value outside letters, digits, spaces and `. _ @ + -`).
 
