@@ -17,7 +17,7 @@ export function ControlTowerPage() {
       <Boundary fallback={<Skeleton className="m-2 h-9" />}>
         <FilterBar />
       </Boundary>
-      <div className="grid min-h-0 flex-1 grid-cols-[300px_1fr_380px]">
+      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_380px] grid-rows-[minmax(0,1fr)]">
         <aside className="min-h-0 border-r border-border bg-white">
           <Boundary fallback={<div className="space-y-2 p-3">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>}>
             <RouteList />

@@ -55,7 +55,7 @@ function StopDetail({ stopId }: { stopId: string }) {
         </div>
         <p className="text-xs text-muted-foreground">{stop.address}, {stop.city}, {stop.state}</p>
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          <dt className="text-muted-foreground">Window</dt><dd>{fmtTime(stop.promised_window_start)}–{fmtTime(stop.promised_window_end)}</dd>
+          <dt className="text-muted-foreground">Window (UTC)</dt><dd>{fmtTime(stop.promised_window_start)}–{fmtTime(stop.promised_window_end)}</dd>
           <dt className="text-muted-foreground">ETA</dt><dd>{fmtTime(stop.eta_ts)}{stop.late_minutes ? ` (+${stop.late_minutes} min)` : ""}</dd>
           <dt className="text-muted-foreground">Route</dt>
           <dd>

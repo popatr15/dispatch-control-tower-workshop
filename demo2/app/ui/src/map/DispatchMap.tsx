@@ -2,7 +2,7 @@ import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import * as maplibregl from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGetHistoryHeat,
@@ -210,7 +210,7 @@ export function DispatchMap() {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={container} className="absolute inset-0" aria-label="Delivery map" />
+      <div ref={container} className="h-full w-full" aria-label="Delivery map" />
       <MapLegend zoomedIn={showStops} />
     </div>
   );
