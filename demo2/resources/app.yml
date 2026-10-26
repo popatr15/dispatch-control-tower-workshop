@@ -64,8 +64,6 @@ resources:
           uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.delivery_history", permission: SELECT}
         - name: depot-sla-daily
           uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.depot_sla_daily", permission: SELECT}
-      user_api_scopes:
-        - iam.current-user:read
       permissions:
         - group_name: users
           level: CAN_USE
