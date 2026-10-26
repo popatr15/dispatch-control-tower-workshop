@@ -131,8 +131,17 @@ def operator_grants(schema: str) -> list[str]:
     """
     return [
         "GRANT USAGE ON SCHEMA {schema} TO {role}",
-        "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA {schema} TO {role}",
+        (
+            "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE "
+            "ON ALL TABLES IN SCHEMA {schema} TO {role}"
+        ),
         "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {schema} TO {role}",
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {role}",
-        "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {role}",
+        (
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {role}"
+        ),
+        (
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            "GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {role}"
+        ),
     ]
