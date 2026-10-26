@@ -1,6 +1,6 @@
 # PRP: Dispatch Control Tower (demo2, full scope, DAB)
 
-> Source of truth for the full reference app. Data comes from `demo1/data` (setup script) per `docs/DATA_CONTRACT.md`. This is a superset of `demo1/PRP.md`: implement every demo1 feature (map, at-risk list, reassign, exceptions, Genie) plus the items below.
+> Source of truth for the full reference app. Data comes from `data` (setup script) per `docs/DATA_CONTRACT.md`. This is a superset of `demo1/PRP.md`: implement every demo1 feature (map, at-risk list, reassign, exceptions, Genie) plus the items below.
 
 ## 1. Goal & Why
 
