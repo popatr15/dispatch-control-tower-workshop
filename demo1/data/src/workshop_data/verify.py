@@ -12,8 +12,11 @@ from databricks.sdk import WorkspaceClient
 
 from workshop_data.deploy import (
     Config,
+    build_genie_payload,
     execute_sql,
     find_genie_space,
+    genie_title,
+    owner_context,
     quote_ident,
     select_warehouse,
 )
@@ -55,7 +58,7 @@ def assert_sql_story(config: Config, w: WorkspaceClient, warehouse_id: str) -> N
     assert scalar_int(
         w,
         warehouse_id,
-        f"SELECT COUNT(*) FROM {fq(config, 'routes')} WHERE risk_score >= 0.75",
+        f"SELECT COUNT(*) FROM {fq(config, 'routes')} WHERE route_date = current_date() AND risk_score >= 0.75",
     ) >= 5
 
     statuses = {
@@ -64,7 +67,7 @@ def assert_sql_story(config: Config, w: WorkspaceClient, warehouse_id: str) -> N
             execute_sql(
                 w,
                 warehouse_id,
-                f"SELECT status, COUNT(*) FROM {fq(config, 'stops')} GROUP BY status",
+                f"SELECT status, COUNT(*) FROM {fq(config, 'stops')} WHERE route_date = current_date() GROUP BY status",
             )
         )
     }
@@ -89,9 +92,9 @@ def assert_sql_story(config: Config, w: WorkspaceClient, warehouse_id: str) -> N
             )
         )
     }
-    required = {"DEPOT_BOS", "DEPOT_NYC"}
-    if not required.issubset(missed_depots):
-        raise AssertionError(f"Expected chronic SLA misses for {required}; got {missed_depots}")
+    expected = {"DEPOT_BOS", "DEPOT_NYC"}
+    if missed_depots != expected:
+        raise AssertionError(f"Expected exactly chronic SLA misses for {expected}; got {missed_depots}")
 
     top_ne_carrier = rows(
         execute_sql(
@@ -133,21 +136,45 @@ def ask_genie(profile: str, space_id: str, question: str) -> dict[str, Any]:
         if status in {"COMPLETED", "FAILED", "CANCELLED"}:
             if status != "COMPLETED":
                 raise AssertionError(f"Genie failed for {question!r}: {message.get('error')}")
+            message.setdefault("conversation_id", conversation_id)
+            message.setdefault("message_id", message_id)
             return message
         time.sleep(2)
     raise AssertionError(f"Genie timed out for {question!r}")
 
 
+def genie_result_rows(profile: str, space_id: str, message: dict[str, Any]) -> list[list[Any]]:
+    conversation_id = message["conversation_id"]
+    message_id = message["message_id"]
+    for attachment in message.get("attachments", []):
+        if "query" not in attachment:
+            continue
+        attachment_id = attachment.get("attachment_id") or attachment.get("id")
+        if not attachment_id:
+            continue
+        result = run_cli_json(
+            [
+                "genie",
+                "get-message-attachment-query-result",
+                space_id,
+                conversation_id,
+                message_id,
+                attachment_id,
+            ],
+            profile,
+        )
+        statement = result.get("statement_response", {})
+        return statement.get("result", {}).get("data_array", []) or []
+    raise AssertionError("Genie completed but did not return a query-result attachment.")
+
+
 def assert_genie_answers(profile: str, space_id: str) -> None:
-    expected_markers = [
-        ["Boston", "Newark", "DEPOT_BOS", "DEPOT_NYC"],
-        ["Northeast Freight Express", "NEFX", "CAR_NEF"],
-    ]
+    expected_markers = [{"Boston", "Newark"}, {"Northeast Freight Express", "NEFX", "CAR_NEF"}]
     for question, markers in zip(CANONICAL_QUESTIONS, expected_markers, strict=True):
         message = ask_genie(profile, space_id, question)
-        rendered = json.dumps(message)
-        if not any(marker in rendered for marker in markers):
-            raise AssertionError(f"Genie answer for {question!r} did not include any of {markers}")
+        result_text = json.dumps(genie_result_rows(profile, space_id, message))
+        if not result_text or not any(marker in result_text for marker in markers):
+            raise AssertionError(f"Genie result rows for {question!r} did not include any of {markers}")
         print(f"Genie OK: {question}")
 
 
@@ -171,10 +198,13 @@ def main() -> None:
         skip_lakebase=True,
     )
     w = WorkspaceClient(profile=args.profile)
+    owner = owner_context(w)
     warehouse_id = select_warehouse(w, args.warehouse_id)
     assert_sql_story(config, w, warehouse_id)
     print("SQL row-count and storyline assertions passed.")
-    space_id = args.genie_space_id or find_genie_space(args.profile)
+    # Build the payload in verification too; this catches certified SQL construction drift early.
+    build_genie_payload(config)
+    space_id = args.genie_space_id or find_genie_space(args.profile, genie_title(config, owner), owner.parent_path)
     if not space_id:
         raise AssertionError("No Genie space id supplied and no reusable workshop space found.")
     assert_genie_answers(args.profile, space_id)

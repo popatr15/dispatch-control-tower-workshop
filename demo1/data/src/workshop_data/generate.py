@@ -8,7 +8,7 @@ import json
 import math
 import random
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -225,11 +225,16 @@ def stop_status(route: dict[str, Any], seq: int, route_size: int) -> tuple[str, 
     return "on_time", 0, None
 
 
+def utc_today() -> date:
+    return datetime.now(UTC).date()
+
+
 def make_stops_and_paths(
-    today: date, depots: list[dict[str, Any]], routes: list[dict[str, Any]]
+    today: date, depots: list[dict[str, Any]], routes: list[dict[str, Any]], vehicles: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rng = random.Random(SEED)
     depot_lookup = {depot["depot_id"]: depot for depot in depots}
+    vehicle_lookup = {vehicle["vehicle_id"]: vehicle for vehicle in vehicles}
     base_per_route = TODAY_STOP_COUNT // len(routes)
     extra = TODAY_STOP_COUNT % len(routes)
     stops: list[dict[str, Any]] = []
@@ -242,14 +247,20 @@ def make_stops_and_paths(
         route_paths.append(
             {"route_id": route["route_id"], "seq": 0, "lat": depot["lat"], "lon": depot["lon"]}
         )
+        path_seq = 1
         start_dt = datetime.fromisoformat(route["planned_start_ts"])
         for seq in range(1, route_size + 1):
             city, state, lat, lon = jittered_point(rng, depot, seq)
             promised_start = start_dt + timedelta(minutes=8 * seq)
             promised_end = promised_start + timedelta(minutes=45)
             status, late_minutes, reason = stop_status(route, seq, route_size)
+            if route["status"] == "planned":
+                status, late_minutes, reason = "at_risk", 0, "capacity" if route["risk_score"] >= 0.75 else None
+            elif status == "on_time" and seq <= route_size * 0.35:
+                status = "delivered"
             eta = promised_end + timedelta(minutes=late_minutes if status == "late" else -8)
-            actual = eta if status in {"delivered", "on_time", "late"} else None
+            actual = eta if status == "delivered" else None
+            carrier_id = vehicle_lookup[route["vehicle_id"]]["carrier_id"]
             stops.append(
                 {
                     "stop_id": f"S-{today.strftime('%Y%m%d')}-{route_index + 1:03d}-{seq:03d}",
@@ -268,7 +279,7 @@ def make_stops_and_paths(
                     "eta_ts": iso_dt(eta),
                     "actual_arrival_ts": iso_dt(actual),
                     "status": status,
-                    "carrier_id": NE_CARRIER_ID if depot["region"] == "Northeast" and seq % 2 == 0 else route["vehicle_id"].split("_")[0].replace("VEH", "CAR_RAP"),
+                    "carrier_id": carrier_id,
                     "depot_id": route["depot_id"],
                     "late_minutes": late_minutes,
                     "late_reason_code": reason,
@@ -278,11 +289,12 @@ def make_stops_and_paths(
                 route_paths.append(
                     {
                         "route_id": route["route_id"],
-                        "seq": len([p for p in route_paths if p["route_id"] == route["route_id"]]),
+                        "seq": path_seq,
                         "lat": lat,
                         "lon": lon,
                     }
                 )
+                path_seq += 1
     return stops, route_paths
 
 
@@ -295,12 +307,12 @@ def make_delivery_history(today: date, depots: list[dict[str, Any]]) -> list[dic
             for seq in range(daily_deliveries):
                 carrier_id = CARRIERS[(seq + day_offset) % len(CARRIERS)][0]
                 cause = "none"
-                late_probability = 0.075
+                late_probability = 0.035
                 if day_offset <= 7 and depot["depot_id"] in HIGH_RISK_DEPOTS:
                     late_probability = 0.22
                     if seq % 2 == 0:
                         carrier_id = NE_CARRIER_ID
-                if depot["region"] == "Northeast" and carrier_id == NE_CARRIER_ID:
+                if depot["depot_id"] in HIGH_RISK_DEPOTS and carrier_id == NE_CARRIER_ID:
                     late_probability += 0.08
                 marker = (stable_int(today, depot["depot_id"], day_offset, seq) % 1000) / 1000
                 is_late = marker < late_probability
@@ -356,12 +368,12 @@ def make_depot_sla_daily(
 
 
 def generate(today: date | None = None) -> dict[str, list[dict[str, Any]]]:
-    today = today or date.today()
+    today = today or utc_today()
     depots = make_depots()
     carriers = make_carriers()
     vehicles = make_vehicles(depots)
     routes = make_routes(today, depots, vehicles)
-    stops, route_paths = make_stops_and_paths(today, depots, routes)
+    stops, route_paths = make_stops_and_paths(today, depots, routes, vehicles)
     delivery_history = make_delivery_history(today, depots)
     depot_sla_daily = make_depot_sla_daily(depots, delivery_history)
     return {
@@ -396,7 +408,7 @@ def write_jsonl(data: dict[str, list[dict[str, Any]]], output_dir: Path) -> None
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate deterministic workshop JSONL data")
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--today", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--today", type=date.fromisoformat, default=utc_today())
     args = parser.parse_args()
     data = generate(args.today)
     assert_schema(data)

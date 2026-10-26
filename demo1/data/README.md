@@ -4,7 +4,11 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 
 ## 5-Step Quick Start
 
-1. Install prerequisites: Databricks CLI, `uv` or Python 3.11+, and an authenticated Databricks CLI profile with a SQL warehouse available.
+1. Install prerequisites: Databricks CLI 1.0.0 or newer, `uv` or Python 3.11+, and a SQL warehouse available. From the repo root, create or refresh a profile:
+
+   ```bash
+   databricks auth login --host <workspace-url> --profile <your-profile>
+   ```
 
 2. Confirm auth:
 
@@ -33,7 +37,7 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
    demo1/data/verify.sh --profile <your-profile>
    ```
 
-5. Tear down workshop-created assets:
+5. Tear down workshop-created assets only when you are sure you no longer need them:
 
    ```bash
    demo1/data/setup.sh --profile <your-profile> --teardown
@@ -61,10 +65,29 @@ export PGSSLMODE=require
 ## Implementation Notes
 
 - The generator is deterministic with a fixed seed and writes JSONL files locally.
-- Setup uploads those files to a managed UC volume named `workshop_seed`, then creates Delta tables with SQL warehouse `CREATE OR REPLACE TABLE ... AS SELECT ... FROM read_files(...)`.
+- Setup uploads those files to a managed UC volume named `workshop_seed`, then creates Delta tables with SQL warehouse `CREATE OR REPLACE TABLE ... TBLPROPERTIES (...) AS SELECT ... FROM read_files(...)`.
+- Setup refuses to overwrite contract-named tables that were not tagged by this script for the current user.
+- Genie spaces and Lakebase projects are scoped by catalog, schema, and current user to avoid shared-workspace collisions.
 - Lakebase uses the current Autoscaling CLI surface documented in the Databricks Lakebase skill: `databricks postgres create-project/list-branches/list-endpoints/list-databases/get-endpoint` and `databricks psql` for idempotent Postgres DDL.
 - Genie uses the current CLI surface documented in the Genie Agents skill: `databricks genie list-spaces/create-space/update-space/start-conversation/get-message`.
 - No secrets, tokens, workspace URLs, or emails are stored by these files.
+- Runtime is typically several minutes because the SQL warehouse loads about 75k historical delivery rows plus today’s 2,500 stops. Warehouse and Lakebase usage may incur workspace costs.
+
+## Shared Workspace Warning
+
+Use your own catalog/schema when possible. Teardown only drops tables tagged as created by this setup for your current user and only deletes a Lakebase project recorded as created by your local setup state. It intentionally leaves the shared UC volume itself in place.
+
+## App Grants
+
+After deploying a Databricks App, grant its service principal access to the gold tables and Lakebase project. Replace placeholders with your app service principal and deployed catalog/schema:
+
+```sql
+GRANT USE CATALOG ON CATALOG <catalog> TO `<app-service-principal>`;
+GRANT USE SCHEMA ON SCHEMA <catalog>.<schema> TO `<app-service-principal>`;
+GRANT SELECT ON SCHEMA <catalog>.<schema> TO `<app-service-principal>`;
+```
+
+For Lakebase, grant the app resource permission in the app configuration or UI so the app service principal can connect to the project/database.
 
 ## Troubleshooting
 

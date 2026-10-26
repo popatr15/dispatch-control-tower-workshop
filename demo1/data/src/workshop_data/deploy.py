@@ -11,18 +11,20 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
 
 from workshop_data.contract import LAKEBASE_DDL, TABLE_COLUMNS, TABLE_ORDER
-from workshop_data.generate import assert_schema, generate, write_jsonl
+from workshop_data.generate import assert_schema, generate, utc_today, write_jsonl
 
-GENIE_TITLE = "Dispatch Control Tower Workshop"
+GENIE_TITLE_PREFIX = "Dispatch Control Tower Workshop"
 VOLUME_NAME = "workshop_seed"
 SAFE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+OWNER_PROPERTY = "dispatch_workshop.owner"
+CREATED_PROPERTY = "dispatch_workshop.created"
+STATE_DIR = Path(".setup-state")
 
 
 @dataclass
@@ -32,6 +34,57 @@ class Config:
     schema: str
     warehouse_id: str | None
     skip_lakebase: bool
+
+
+@dataclass(frozen=True)
+class OwnerContext:
+    user_name: str
+    user_slug: str
+    marker: str
+    parent_path: str
+
+
+def owner_context(w: WorkspaceClient) -> OwnerContext:
+    user_name = w.current_user.me().user_name
+    user_slug = sanitize_resource_part(user_name.split("@")[0])[:24]
+    marker = hashlib_text(user_name)[:16]
+    return OwnerContext(
+        user_name=user_name,
+        user_slug=user_slug,
+        marker=marker,
+        parent_path=f"/Workspace/Users/{user_name}/genie_spaces",
+    )
+
+
+def hashlib_text(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def sanitize_resource_part(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9-]", "-", value.lower().replace("_", "-")).strip("-")
+    return cleaned or "user"
+
+
+def state_path(config: Config, owner: OwnerContext) -> Path:
+    return STATE_DIR / f"{sanitize_resource_part(config.catalog)}-{sanitize_resource_part(config.schema)}-{owner.marker}.json"
+
+
+def read_state(config: Config, owner: OwnerContext) -> dict[str, Any]:
+    path = state_path(config, owner)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_state(config: Config, owner: OwnerContext, state: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(exist_ok=True)
+    state_path(config, owner).write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def genie_title(config: Config, owner: OwnerContext) -> str:
+    return f"{GENIE_TITLE_PREFIX} - {config.catalog}.{config.schema} - {owner.user_slug}"
 
 
 def quote_ident(name: str) -> str:
@@ -79,8 +132,11 @@ def json_items(payload: Any, key: str) -> list[Any]:
     return []
 
 
-def wait_for_statement(w: WorkspaceClient, statement_id: str) -> Any:
+def wait_for_statement(w: WorkspaceClient, statement_id: str, timeout_seconds: int = 900) -> Any:
+    deadline = time.monotonic() + timeout_seconds
     while True:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"SQL statement {statement_id} did not finish within {timeout_seconds}s")
         response = w.statement_execution.get_statement(statement_id)
         state = str(response.status.state).split(".")[-1]
         if state in {"SUCCEEDED", "FAILED", "CANCELED", "CLOSED"}:
@@ -107,6 +163,7 @@ def execute_sql(w: WorkspaceClient, warehouse_id: str, sql: str) -> Any:
 
 def select_warehouse(w: WorkspaceClient, requested: str | None) -> str:
     if requested:
+        print(f"Using provided SQL warehouse: {requested}")
         return requested
     warehouses = list(w.warehouses.list())
     if not warehouses:
@@ -124,14 +181,21 @@ def select_warehouse(w: WorkspaceClient, requested: str | None) -> str:
             "Startup may take longer.",
             file=sys.stderr,
         )
+    print(f"Auto-selected SQL warehouse: {selected.id}")
     return selected.id
 
 
 def create_uc_objects(config: Config, w: WorkspaceClient, warehouse_id: str) -> None:
-    try:
-        existing_catalogs = {catalog.name for catalog in w.catalogs.list()}
-        if config.catalog not in existing_catalogs:
+    existing_catalogs = {catalog.name for catalog in w.catalogs.list()}
+    if config.catalog not in existing_catalogs:
+        try:
             execute_sql(w, warehouse_id, f"CREATE CATALOG IF NOT EXISTS {quote_ident(config.catalog)}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not create catalog {config.catalog}. Ask an admin to grant CREATE CATALOG "
+                "or rerun with --catalog pointing to an existing writable catalog."
+            ) from exc
+    try:
         execute_sql(
             w,
             warehouse_id,
@@ -145,8 +209,8 @@ def create_uc_objects(config: Config, w: WorkspaceClient, warehouse_id: str) -> 
         )
     except Exception as exc:
         raise RuntimeError(
-            "Could not create the catalog/schema/volume. Ask a workspace admin to grant CREATE "
-            f"permissions or pre-create {config.catalog}.{config.schema} and rerun setup."
+            f"Could not create or access {config.catalog}.{config.schema} and volume {VOLUME_NAME}. "
+            "Use a writable schema or ask an admin to grant CREATE SCHEMA/VOLUME."
         ) from exc
 
 
@@ -166,12 +230,41 @@ def path_exists(config: Config, dbfs_path: str) -> bool:
     return True
 
 
-def create_table_sql(config: Config, table: str, volume_path: str) -> str:
+def table_exists(config: Config, w: WorkspaceClient, warehouse_id: str, table: str) -> bool:
+    try:
+        execute_sql(w, warehouse_id, f"DESCRIBE TABLE {table_name(config, table)}")
+    except RuntimeError:
+        return False
+    return True
+
+
+def table_property(config: Config, w: WorkspaceClient, warehouse_id: str, table: str, prop: str) -> str | None:
+    response = execute_sql(w, warehouse_id, f"SHOW TBLPROPERTIES {table_name(config, table)} ('{prop}')")
+    result_rows = response.result.data_array or [] if response.result else []
+    if not result_rows:
+        return None
+    value = result_rows[0][-1]
+    return None if value is None or str(value).startswith("Table property") else str(value)
+
+
+def assert_table_owned_or_absent(config: Config, w: WorkspaceClient, warehouse_id: str, table: str, owner: OwnerContext) -> None:
+    if not table_exists(config, w, warehouse_id, table):
+        return
+    marker = table_property(config, w, warehouse_id, table, OWNER_PROPERTY)
+    if marker != owner.marker:
+        raise RuntimeError(
+            f"Refusing to replace {config.catalog}.{config.schema}.{table}: table exists but is not "
+            "tagged as created by this setup run/user."
+        )
+
+
+def create_table_sql(config: Config, table: str, volume_path: str, owner: OwnerContext) -> str:
     projections = ",\n  ".join(f"{column.json_expr} AS {quote_ident(column.name)}" for column in TABLE_COLUMNS[table])
     path = f"{volume_path}/{table}.jsonl"
     return f"""
 CREATE OR REPLACE TABLE {table_name(config, table)}
 USING DELTA
+TBLPROPERTIES ('{CREATED_PROPERTY}' = 'true', '{OWNER_PROPERTY}' = '{owner.marker}')
 AS
 SELECT
   {projections}
@@ -179,10 +272,11 @@ FROM read_files('{path}', format => 'json')
 """
 
 
-def load_gold_tables(config: Config, w: WorkspaceClient, warehouse_id: str, volume_path: str) -> None:
+def load_gold_tables(config: Config, w: WorkspaceClient, warehouse_id: str, volume_path: str, owner: OwnerContext) -> None:
     for table in TABLE_ORDER:
+        assert_table_owned_or_absent(config, w, warehouse_id, table, owner)
         print(f"Creating {config.catalog}.{config.schema}.{table}")
-        execute_sql(w, warehouse_id, create_table_sql(config, table, volume_path))
+        execute_sql(w, warehouse_id, create_table_sql(config, table, volume_path, owner))
 
 
 def build_genie_payload(config: Config) -> dict[str, Any]:
@@ -334,21 +428,26 @@ ORDER BY late_deliveries DESC
     }
 
 
-def find_genie_space(profile: str) -> str | None:
+def find_genie_space(profile: str, title: str, parent_path: str | None = None) -> str | None:
     try:
         payload = run_cli_json(["genie", "list-spaces"], profile)
     except RuntimeError:
         return None
     spaces = json_items(payload, "spaces")
     for space in spaces:
-        if space.get("title") == GENIE_TITLE:
+        if space.get("title") != title:
+            continue
+        if parent_path and space.get("parent_path") not in {None, parent_path}:
+            continue
+        if space.get("title") == title:
             return space.get("space_id") or space.get("id")
     return None
 
 
-def upsert_genie_space(config: Config, w: WorkspaceClient, warehouse_id: str) -> str:
+def upsert_genie_space(config: Config, warehouse_id: str, owner: OwnerContext) -> str:
     serialized = json.dumps(build_genie_payload(config), separators=(",", ":"))
-    existing_id = find_genie_space(config.profile)
+    title = genie_title(config, owner)
+    existing_id = find_genie_space(config.profile, title, owner.parent_path)
     if existing_id:
         run_cli(
             ["genie", "update-space", existing_id, "--json", json.dumps({"serialized_space": serialized})],
@@ -356,9 +455,7 @@ def upsert_genie_space(config: Config, w: WorkspaceClient, warehouse_id: str) ->
         )
         return existing_id
 
-    user_name = w.current_user.me().user_name
-    parent_path = f"/Workspace/Users/{user_name}/genie_spaces"
-    run_cli(["workspace", "mkdirs", parent_path], config.profile)
+    run_cli(["workspace", "mkdirs", owner.parent_path], config.profile)
     created = run_cli_json(
         [
             "genie",
@@ -367,31 +464,41 @@ def upsert_genie_space(config: Config, w: WorkspaceClient, warehouse_id: str) ->
             json.dumps(
                 {
                     "warehouse_id": warehouse_id,
-                    "title": GENIE_TITLE,
+                    "title": title,
                     "description": "Curated Genie agent for Dispatch Control Tower workshop gold tables.",
-                    "parent_path": parent_path,
+                    "parent_path": owner.parent_path,
                     "serialized_space": serialized,
                 }
             ),
         ],
         config.profile,
     )
-    return created.get("space_id") or created.get("id") or find_genie_space(config.profile) or ""
+    return created.get("space_id") or created.get("id") or find_genie_space(config.profile, title, owner.parent_path) or ""
 
 
-def lakebase_project_id(config: Config) -> str:
-    raw = f"dispatch-workshop-{config.catalog}-{config.schema}".lower().replace("_", "-")
+def lakebase_project_id(config: Config, owner: OwnerContext) -> str:
+    raw = f"dispatch-workshop-{owner.user_slug}-{config.catalog}-{config.schema}".lower().replace("_", "-")
     cleaned = re.sub(r"[^a-z0-9-]", "-", raw).strip("-")
     if not cleaned or not cleaned[0].isalpha():
         cleaned = f"p-{cleaned}"
     return cleaned[:63].rstrip("-")
 
 
-def ensure_lakebase(config: Config) -> dict[str, str]:
-    project_id = lakebase_project_id(config)
+def wait_for_cli_items(args: list[str], profile: str, key: str, label: str, attempts: int = 30) -> list[Any]:
+    for _ in range(attempts):
+        items = json_items(run_cli_json(args, profile), key)
+        if items:
+            return items
+        time.sleep(5)
+    raise RuntimeError(f"Lakebase project is still provisioning: no {label} found after waiting.")
+
+
+def ensure_lakebase(config: Config, owner: OwnerContext, state: dict[str, Any]) -> dict[str, str]:
+    project_id = lakebase_project_id(config, owner)
     project_name = f"projects/{project_id}"
     projects = run_cli_json(["postgres", "list-projects"], config.profile)
     existing = json_items(projects, "projects")
+    created_project = False
     if not any(project.get("name") == project_name for project in existing):
         print(f"Creating Lakebase project {project_id}")
         run_cli(
@@ -404,18 +511,18 @@ def ensure_lakebase(config: Config) -> dict[str, str]:
             ],
             config.profile,
         )
+        created_project = True
 
-    branches = run_cli_json(["postgres", "list-branches", project_name], config.profile)
-    branch = json_items(branches, "branches")[0]
+    branch = wait_for_cli_items(["postgres", "list-branches", project_name], config.profile, "branches", "branches")[0]
     branch_name = branch["name"]
-    endpoints = run_cli_json(["postgres", "list-endpoints", branch_name], config.profile)
-    endpoint = json_items(endpoints, "endpoints")[0]
+    endpoint = wait_for_cli_items(["postgres", "list-endpoints", branch_name], config.profile, "endpoints", "endpoints")[0]
     endpoint_name = endpoint["name"]
-    databases = run_cli_json(["postgres", "list-databases", branch_name], config.profile)
-    database = json_items(databases, "databases")[0]
+    database = wait_for_cli_items(["postgres", "list-databases", branch_name], config.profile, "databases", "databases")[0]
     database_name = database["name"]
     endpoint_detail = run_cli_json(["postgres", "get-endpoint", endpoint_name], config.profile)
     host = endpoint_detail.get("status", {}).get("hosts", {}).get("host", "")
+    if not host:
+        raise RuntimeError(f"Lakebase endpoint {endpoint_name} has no host yet; rerun setup after provisioning finishes.")
     postgres_db = database.get("status", {}).get("postgres_database") or "databricks_postgres"
 
     try:
@@ -449,6 +556,10 @@ def ensure_lakebase(config: Config) -> dict[str, str]:
             f"{details}"
         ) from exc
 
+    if created_project:
+        state["lakebase_project"] = project_name
+        state["lakebase_created_by_setup"] = True
+
     return {
         "LAKEBASE_PROJECT": project_name,
         "LAKEBASE_BRANCH": branch_name,
@@ -463,18 +574,30 @@ def ensure_lakebase(config: Config) -> dict[str, str]:
 
 def setup(config: Config) -> None:
     w = WorkspaceClient(profile=config.profile)
+    owner = owner_context(w)
+    state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
     create_uc_objects(config, w, warehouse_id)
-    data = generate(date.today())
+    data = generate(utc_today())
     assert_schema(data)
     with tempfile.TemporaryDirectory(prefix="dispatch-workshop-") as tmp:
         out_dir = Path(tmp) / "gold"
         write_jsonl(data, out_dir)
         volume_path = upload_generated_files(config, out_dir)
-        load_gold_tables(config, w, warehouse_id, volume_path)
+        load_gold_tables(config, w, warehouse_id, volume_path, owner)
 
-    lakebase_info = {"LAKEBASE_SKIPPED": "true"} if config.skip_lakebase else ensure_lakebase(config)
-    genie_space_id = upsert_genie_space(config, w, warehouse_id)
+    lakebase_info = {"LAKEBASE_SKIPPED": "true"} if config.skip_lakebase else ensure_lakebase(config, owner, state)
+    genie_space_id = upsert_genie_space(config, warehouse_id, owner)
+    state.update(
+        {
+            "catalog": config.catalog,
+            "schema": config.schema,
+            "owner_marker": owner.marker,
+            "genie_space_id": genie_space_id,
+            "genie_title": genie_title(config, owner),
+        }
+    )
+    write_state(config, owner, state)
 
     print("\nSetup complete. Configure the app with:")
     summary = {
@@ -490,23 +613,30 @@ def setup(config: Config) -> None:
 
 def teardown(config: Config) -> None:
     w = WorkspaceClient(profile=config.profile)
+    owner = owner_context(w)
+    state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
     for table in reversed(TABLE_ORDER):
-        execute_sql(w, warehouse_id, f"DROP TABLE IF EXISTS {table_name(config, table)}")
-    execute_sql(
-        w,
-        warehouse_id,
-        f"DROP VOLUME IF EXISTS {quote_ident(config.catalog)}.{quote_ident(config.schema)}.{quote_ident(VOLUME_NAME)}",
+        if table_exists(config, w, warehouse_id, table):
+            marker = table_property(config, w, warehouse_id, table, OWNER_PROPERTY)
+            if marker != owner.marker:
+                raise RuntimeError(f"Refusing to drop unowned table {config.catalog}.{config.schema}.{table}")
+            execute_sql(w, warehouse_id, f"DROP TABLE IF EXISTS {table_name(config, table)}")
+    run_cli(
+        ["fs", "rm", "-r", f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl"],
+        config.profile,
     )
-    space_id = find_genie_space(config.profile)
+    space_id = state.get("genie_space_id") or find_genie_space(config.profile, genie_title(config, owner), owner.parent_path)
     if space_id:
         run_cli(["genie", "trash-space", space_id], config.profile)
-    if not config.skip_lakebase:
-        project_name = f"projects/{lakebase_project_id(config)}"
+    if not config.skip_lakebase and state.get("lakebase_created_by_setup"):
+        project_name = state.get("lakebase_project")
         try:
             run_cli(["postgres", "delete-project", project_name], config.profile)
         except RuntimeError as exc:
             print(f"Lakebase project delete skipped or failed: {exc}", file=sys.stderr)
+    elif not config.skip_lakebase:
+        print("Lakebase project not deleted because this setup did not record creating it.")
     print("Teardown complete.")
 
 

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 
 from workshop_data.contract import TABLE_COLUMNS, TABLE_ORDER
 from workshop_data.generate import generate
 
 FIXED_DAY = date(2026, 10, 26)
+MONTH_BOUNDARY_DAY = date(2026, 3, 1)
+GOLDEN_DIGEST = "41a0efa297dadffdfa1cf1e976ee59d59056470cc1f57f4c73eb38718727caf3"
 
 
 def digest(data: dict[str, list[dict]]) -> str:
@@ -20,6 +24,7 @@ def test_generator_is_deterministic() -> None:
     first = generate(FIXED_DAY)
     second = generate(FIXED_DAY)
     assert digest(first) == digest(second)
+    assert digest(first) == GOLDEN_DIGEST
 
 
 def test_schema_conforms_to_contract_order_and_names() -> None:
@@ -66,8 +71,10 @@ def test_last_week_chronic_sla_misses_and_ne_carrier_cluster() -> None:
         if row["sla_date"] in last_week and not row["sla_met"]:
             misses_by_depot[row["depot_id"]] += 1
 
-    assert misses_by_depot["DEPOT_BOS"] >= 4
-    assert misses_by_depot["DEPOT_NYC"] >= 4
+    assert {depot for depot, days in misses_by_depot.items() if days >= 4} == {
+        "DEPOT_BOS",
+        "DEPOT_NYC",
+    }
 
     late_ne_by_carrier = Counter(
         row["carrier_id"]
@@ -86,3 +93,70 @@ def test_dates_are_relative_to_requested_run_day() -> None:
     assert (FIXED_DAY - timedelta(days=1)).isoformat() in history_dates
     assert (FIXED_DAY - timedelta(days=30)).isoformat() in history_dates
     assert FIXED_DAY.isoformat() not in history_dates
+
+    boundary_data = generate(MONTH_BOUNDARY_DAY)
+    boundary_history_dates = {row["delivery_date"] for row in boundary_data["delivery_history"]}
+    assert (MONTH_BOUNDARY_DAY - timedelta(days=1)).isoformat() in boundary_history_dates
+    assert (MONTH_BOUNDARY_DAY - timedelta(days=30)).isoformat() in boundary_history_dates
+
+
+def test_allowed_values_and_stop_state_coherence() -> None:
+    data = generate(FIXED_DAY)
+    assert {row["region"] for row in data["depots"]} <= {
+        "Northeast",
+        "Southeast",
+        "Midwest",
+        "Southwest",
+        "West",
+    }
+    assert {row["status"] for row in data["routes"]} <= {
+        "planned",
+        "in_progress",
+        "delayed",
+        "completed",
+    }
+    assert {row["status"] for row in data["stops"]} <= {"delivered", "on_time", "at_risk", "late"}
+    assert {row["cause_code"] for row in data["delivery_history"]} <= {
+        "traffic",
+        "weather",
+        "vehicle_down",
+        "customer_unavailable",
+        "address_issue",
+        "capacity",
+        "none",
+    }
+    route_status = {row["route_id"]: row["status"] for row in data["routes"]}
+    for stop in data["stops"]:
+        if route_status[stop["route_id"]] == "planned":
+            assert stop["actual_arrival_ts"] is None
+            assert stop["status"] not in {"delivered", "on_time"}
+        if stop["status"] != "delivered":
+            assert stop["actual_arrival_ts"] is None
+
+
+def test_referential_integrity_and_carrier_spread() -> None:
+    data = generate(FIXED_DAY)
+    routes = {row["route_id"]: row for row in data["routes"]}
+    vehicles = {row["vehicle_id"]: row for row in data["vehicles"]}
+    carriers = {row["carrier_id"] for row in data["carriers"]}
+    depots = {row["depot_id"] for row in data["depots"]}
+
+    assert all(vehicle["depot_id"] in depots and vehicle["carrier_id"] in carriers for vehicle in vehicles.values())
+    stop_carriers = Counter(row["carrier_id"] for row in data["stops"])
+    assert len(stop_carriers) >= 3
+    for stop in data["stops"]:
+        route = routes[stop["route_id"]]
+        vehicle = vehicles[route["vehicle_id"]]
+        assert stop["depot_id"] == route["depot_id"]
+        assert stop["carrier_id"] == vehicle["carrier_id"]
+        assert stop["carrier_id"] in carriers
+
+
+def test_contract_columns_match_docs() -> None:
+    contract_path = Path(__file__).parents[3] / "docs" / "DATA_CONTRACT.md"
+    text = contract_path.read_text(encoding="utf-8")
+    for table in TABLE_ORDER:
+        match = re.search(rf"^\| {table} \| (?P<columns>.+?) \|$", text, re.MULTILINE)
+        assert match, table
+        docs_columns = [part.split()[0] for part in match.group("columns").split(", ")]
+        assert docs_columns == [column.name for column in TABLE_COLUMNS[table]]

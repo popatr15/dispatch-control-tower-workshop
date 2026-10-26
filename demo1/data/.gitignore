@@ -1,2 +1,2 @@
 .pytest_cache/
-uv.lock
+.setup-state/

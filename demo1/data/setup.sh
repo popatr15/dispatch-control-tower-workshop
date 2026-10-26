@@ -27,21 +27,34 @@ WAREHOUSE_ID=""
 SKIP_LAKEBASE=0
 TEARDOWN=0
 
+require_value() {
+  local flag="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "Error: $flag requires a value." >&2
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile)
+      require_value "$1" "${2:-}"
       PROFILE="${2:-}"
       shift 2
       ;;
     --catalog)
+      require_value "$1" "${2:-}"
       CATALOG="${2:-}"
       shift 2
       ;;
     --schema)
+      require_value "$1" "${2:-}"
       SCHEMA="${2:-}"
       shift 2
       ;;
     --warehouse-id)
+      require_value "$1" "${2:-}"
       WAREHOUSE_ID="${2:-}"
       shift 2
       ;;
