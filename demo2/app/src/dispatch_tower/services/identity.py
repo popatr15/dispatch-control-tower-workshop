@@ -64,9 +64,15 @@ def obo_groups(token: str) -> list[str]:
     return [g.display for g in (me.groups or []) if g.display]
 
 
-def resolve_identity(settings: Settings, *, email: str | None, username: str | None,
-                     token: str | None, role_header: str | None,
-                     groups: GroupLookup | None) -> Identity:
+def resolve_identity(
+    settings: Settings,
+    *,
+    email: str | None,
+    username: str | None,
+    token: str | None,
+    role_header: str | None,
+    groups: GroupLookup | None,
+) -> Identity:
     user = (email or username or "").strip() or settings.dev_user
     if settings.allow_role_switch and role_header in ROLES:
         return Identity(user, role_header, "switch")

@@ -4,7 +4,14 @@ Applied on app startup by the app's service principal, which therefore owns
 the schema. `{schema}` is validated as a plain identifier in Settings.
 """
 
-REASSIGNMENT_REASONS = ("vehicle_down", "weather", "capacity", "customer_request", "sla_risk", "other")
+REASSIGNMENT_REASONS = (
+    "vehicle_down",
+    "weather",
+    "capacity",
+    "customer_request",
+    "sla_risk",
+    "other",
+)
 EXCEPTION_TYPES = ("customer_unavailable", "weather", "vehicle_down", "other")
 ROUTE_STATES = ("planned", "in_progress", "delayed", "completed")
 

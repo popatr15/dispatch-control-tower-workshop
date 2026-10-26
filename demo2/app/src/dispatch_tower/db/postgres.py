@@ -91,8 +91,9 @@ class PgTx:
         assert row is not None
         return _normalize(row)
 
-    def insert_reassignment(self, stop_id, from_route_id, to_route_id, reason_code, note,
-                            created_by) -> Row:
+    def insert_reassignment(
+        self, stop_id, from_route_id, to_route_id, reason_code, note, created_by
+    ) -> Row:
         return self._one(
             "INSERT INTO {s}.stop_reassignments "
             "(stop_id, from_route_id, to_route_id, reason_code, note, created_by) "
@@ -168,16 +169,16 @@ class PgTx:
             (actor, action, entity_type, entity_id, Jsonb(payload), reason),
         )
 
-    def insert_genie_message(self, user_name, conversation_id, message_id, question, answer,
-                             sql) -> Row:
+    def insert_genie_message(
+        self, user_name, conversation_id, message_id, question, answer, sql
+    ) -> Row:
         return self._one(
             "INSERT INTO {s}.genie_messages (user_name, conversation_id, message_id, question, "
             "answer, sql) VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
             (user_name, conversation_id, message_id, question, answer, sql),
         )
 
-    def insert_genie_feedback(self, user_name, conversation_id, message_id, rating,
-                              comment) -> Row:
+    def insert_genie_feedback(self, user_name, conversation_id, message_id, rating, comment) -> Row:
         return self._one(
             "INSERT INTO {s}.genie_feedback (user_name, conversation_id, message_id, rating, "
             "comment) VALUES (%s, %s, %s, %s, %s) RETURNING *",
@@ -202,8 +203,16 @@ def _normalize(row: Row) -> Row:
 class PostgresStore:
     kind = "lakebase"
 
-    def __init__(self, conninfo: dict[str, Any], tokens: TokenProvider, schema: str,
-                 bus: EventBus | None = None, *, min_size: int = 1, max_size: int = 8) -> None:
+    def __init__(
+        self,
+        conninfo: dict[str, Any],
+        tokens: TokenProvider,
+        schema: str,
+        bus: EventBus | None = None,
+        *,
+        min_size: int = 1,
+        max_size: int = 8,
+    ) -> None:
         self._conninfo = conninfo
         self._tokens = tokens
         self._schema = schema
@@ -265,8 +274,9 @@ class PostgresStore:
         if stop_ids is not None:
             where, params = "WHERE stop_id = ANY(%s)", (list(stop_ids),)
         rows = self._all(
-            "SELECT DISTINCT ON (stop_id) * FROM {s}.stop_reassignments " + where +
-            " ORDER BY stop_id, created_at DESC, id DESC",
+            "SELECT DISTINCT ON (stop_id) * FROM {s}.stop_reassignments "
+            + where
+            + " ORDER BY stop_id, created_at DESC, id DESC",
             params,
         )
         return {r["stop_id"]: r for r in rows}
@@ -302,8 +312,9 @@ class PostgresStore:
     def list_route_state(self) -> list[Row]:
         return self._all("SELECT * FROM {s}.route_state")
 
-    def list_audit(self, actor=None, action=None, entity_type=None, entity_id=None, since=None,
-                   limit=200) -> list[Row]:
+    def list_audit(
+        self, actor=None, action=None, entity_type=None, entity_id=None, since=None, limit=200
+    ) -> list[Row]:
         return self._all(
             "SELECT * FROM {s}.audit_log WHERE (%(a)s::text IS NULL OR actor = %(a)s) "
             "AND (%(ac)s::text IS NULL OR action = %(ac)s) "
@@ -311,8 +322,14 @@ class PostgresStore:
             "AND (%(ei)s::text IS NULL OR entity_id = %(ei)s) "
             "AND (%(since)s::timestamptz IS NULL OR created_at >= %(since)s) "
             "ORDER BY id DESC LIMIT %(lim)s",
-            {"a": actor, "ac": action, "et": entity_type, "ei": entity_id, "since": since,
-             "lim": max(1, min(limit, 1000))},
+            {
+                "a": actor,
+                "ac": action,
+                "et": entity_type,
+                "ei": entity_id,
+                "since": since,
+                "lim": max(1, min(limit, 1000)),
+            },
         )
 
     def list_genie_messages(self, user_name: str, conversation_id: str | None = None) -> list[Row]:

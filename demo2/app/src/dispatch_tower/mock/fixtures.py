@@ -30,10 +30,30 @@ CARRIERS = [
     ("CAR-02", "Bluebird Logistics", "BBLG"),
     ("CAR-03", "Summit Courier", "SMCR"),
 ]
-CUSTOMERS = ["Acme Supply", "Globex Retail", "Initech Parts", "Umbrella Pharmacy", "Hooli Market",
-             "Vandelay Imports", "Stark Hardware", "Wayne Grocers", "Wonka Sweets", "Cyberdyne Labs"]
-DRIVERS = ["A. Rivera", "B. Chen", "C. Okafor", "D. Novak", "E. Haddad", "F. Silva", "G. Ito",
-           "H. Moreau", "I. Patel", "J. Kowalski"]
+CUSTOMERS = [
+    "Acme Supply",
+    "Globex Retail",
+    "Initech Parts",
+    "Umbrella Pharmacy",
+    "Hooli Market",
+    "Vandelay Imports",
+    "Stark Hardware",
+    "Wayne Grocers",
+    "Wonka Sweets",
+    "Cyberdyne Labs",
+]
+DRIVERS = [
+    "A. Rivera",
+    "B. Chen",
+    "C. Okafor",
+    "D. Novak",
+    "E. Haddad",
+    "F. Silva",
+    "G. Ito",
+    "H. Moreau",
+    "I. Patel",
+    "J. Kowalski",
+]
 CAUSES = ["traffic", "weather", "vehicle_down", "customer_unavailable", "address_issue", "capacity"]
 
 
@@ -49,24 +69,42 @@ class MockData:
     history_cells: list[Row] = field(default_factory=list)
 
 
-def build(today: date | None = None, *, routes_per_day: int = 25, stops_per_route: int = 100,
-          seed: int = 42) -> MockData:
+def build(
+    today: date | None = None,
+    *,
+    routes_per_day: int = 25,
+    stops_per_route: int = 100,
+    seed: int = 42,
+) -> MockData:
     rng = random.Random(seed)
     today = today or datetime.now(UTC).date()
     data = MockData(today=today)
     data.depots = [
-        dict(depot_id=d[0], name=d[1], city=d[2], state=d[3], region=d[4], lat=d[5], lon=d[6],
-             catchment_radius_km=d[7], sla_target_pct=d[8])
+        dict(
+            depot_id=d[0],
+            name=d[1],
+            city=d[2],
+            state=d[3],
+            region=d[4],
+            lat=d[5],
+            lon=d[6],
+            catchment_radius_km=d[7],
+            sla_target_pct=d[8],
+        )
         for d in DEPOTS
     ]
     data.carriers = [dict(carrier_id=c[0], name=c[1], scac=c[2]) for c in CARRIERS]
     for i in range(60):
         depot = data.depots[i % len(data.depots)]
-        data.vehicles.append(dict(
-            vehicle_id=f"VEH-{i + 1:03d}", depot_id=depot["depot_id"],
-            carrier_id=CARRIERS[i % len(CARRIERS)][0],
-            vehicle_type="box_truck" if i % 3 else "van", capacity_stops=120,
-        ))
+        data.vehicles.append(
+            dict(
+                vehicle_id=f"VEH-{i + 1:03d}",
+                depot_id=depot["depot_id"],
+                carrier_id=CARRIERS[i % len(CARRIERS)][0],
+                vehicle_type="box_truck" if i % 3 else "van",
+                capacity_stops=120,
+            )
+        )
 
     stop_seq = 0
     for r in range(routes_per_day):
@@ -103,42 +141,74 @@ def build(today: date | None = None, *, routes_per_day: int = 25, stops_per_rout
             else:
                 status = "on_time"
             late_minutes = rng.randint(15, 120) if status == "late" else 0
-            eta = window_end + timedelta(minutes=late_minutes) if status == "late" else (
-                window_end - timedelta(minutes=rng.randint(5, 60)))
-            actual = (window_start + timedelta(minutes=rng.randint(0, 100))
-                      if status == "delivered" else None)
+            eta = (
+                window_end + timedelta(minutes=late_minutes)
+                if status == "late"
+                else (window_end - timedelta(minutes=rng.randint(5, 60)))
+            )
+            actual = (
+                window_start + timedelta(minutes=rng.randint(0, 100))
+                if status == "delivered"
+                else None
+            )
             cause = None
             if status == "late":
                 cause = rng.choice(["weather", "traffic"]) if troubled else rng.choice(CAUSES)
             statuses.append(status)
-            stop_rows.append(dict(
-                stop_id=f"S-{today:%Y%m%d}-{stop_seq:05d}", route_id=route_id, route_date=today,
-                sequence=s + 1, customer_name=rng.choice(CUSTOMERS),
-                address=f"{rng.randint(10, 9999)} Commerce St", city=depot["city"],
-                state=depot["state"], region=depot["region"], lat=round(lat, 6),
-                lon=round(lon, 6), promised_window_start=window_start,
-                promised_window_end=window_end, eta_ts=eta, actual_arrival_ts=actual,
-                status=status, carrier_id=carrier_id, depot_id=depot["depot_id"],
-                late_minutes=late_minutes, late_reason_code=cause,
-            ))
+            stop_rows.append(
+                dict(
+                    stop_id=f"S-{today:%Y%m%d}-{stop_seq:05d}",
+                    route_id=route_id,
+                    route_date=today,
+                    sequence=s + 1,
+                    customer_name=rng.choice(CUSTOMERS),
+                    address=f"{rng.randint(10, 9999)} Commerce St",
+                    city=depot["city"],
+                    state=depot["state"],
+                    region=depot["region"],
+                    lat=round(lat, 6),
+                    lon=round(lon, 6),
+                    promised_window_start=window_start,
+                    promised_window_end=window_end,
+                    eta_ts=eta,
+                    actual_arrival_ts=actual,
+                    status=status,
+                    carrier_id=carrier_id,
+                    depot_id=depot["depot_id"],
+                    late_minutes=late_minutes,
+                    late_reason_code=cause,
+                )
+            )
             path.append((round(lat, 6), round(lon, 6)))
         late = statuses.count("late")
         at_risk = statuses.count("at_risk")
-        risk = min(0.99, round((late * 2 + at_risk) / (stops_per_route * 0.9) + rng.uniform(0, .1),
-                               3))
+        risk = min(
+            0.99, round((late * 2 + at_risk) / (stops_per_route * 0.9) + rng.uniform(0, 0.1), 3)
+        )
         reason = None
         if risk >= 0.5:
-            reason = "Weather and traffic delays on carrier route" if troubled else (
-                "Capacity: stop density above plan")
+            reason = (
+                "Weather and traffic delays on carrier route"
+                if troubled
+                else ("Capacity: stop density above plan")
+            )
         elif risk >= 0.25:
             reason = "ETA drift on late-day stops"
-        data.routes.append(dict(
-            route_id=route_id, route_date=today, depot_id=depot["depot_id"],
-            vehicle_id=vehicle["vehicle_id"], carrier_id=carrier_id,
-            driver_name=DRIVERS[r % len(DRIVERS)], planned_start_ts=start,
-            status="delayed" if risk >= 0.5 else ("in_progress" if r % 5 else "planned"),
-            planned_stops=stops_per_route, risk_score=risk, risk_reason=reason,
-        ))
+        data.routes.append(
+            dict(
+                route_id=route_id,
+                route_date=today,
+                depot_id=depot["depot_id"],
+                vehicle_id=vehicle["vehicle_id"],
+                carrier_id=carrier_id,
+                driver_name=DRIVERS[r % len(DRIVERS)],
+                planned_start_ts=start,
+                status="delayed" if risk >= 0.5 else ("in_progress" if r % 5 else "planned"),
+                planned_stops=stops_per_route,
+                risk_score=risk,
+                risk_reason=reason,
+            )
+        )
         data.stops.extend(stop_rows)
         data.route_paths.extend(
             dict(route_id=route_id, seq=i, lat=p[0], lon=p[1]) for i, p in enumerate(path)
@@ -152,8 +222,15 @@ def build(today: date | None = None, *, routes_per_day: int = 25, stops_per_rout
             deliveries = rng.randint(80, 400)
             base = 0.78 if depot["region"] == "Northeast" else 0.93
             on_time = int(deliveries * min(1.0, max(0.5, rng.gauss(base, 0.05))))
-            data.history_cells.append(dict(
-                lat=lat, lon=lon, depot_id=depot["depot_id"], region=depot["region"],
-                carrier_id=CARRIERS[rng.randrange(3)][0], deliveries=deliveries, on_time=on_time,
-            ))
+            data.history_cells.append(
+                dict(
+                    lat=lat,
+                    lon=lon,
+                    depot_id=depot["depot_id"],
+                    region=depot["region"],
+                    carrier_id=CARRIERS[rng.randrange(3)][0],
+                    deliveries=deliveries,
+                    on_time=on_time,
+                )
+            )
     return data

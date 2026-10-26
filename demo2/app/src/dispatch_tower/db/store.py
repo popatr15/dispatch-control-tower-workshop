@@ -20,8 +20,13 @@ class NotFound(Exception):
 
 class Tx(Protocol):
     def insert_reassignment(
-        self, stop_id: str, from_route_id: str | None, to_route_id: str, reason_code: str,
-        note: str | None, created_by: str,
+        self,
+        stop_id: str,
+        from_route_id: str | None,
+        to_route_id: str,
+        reason_code: str,
+        note: str | None,
+        created_by: str,
     ) -> Row: ...
 
     def insert_exception(
@@ -33,7 +38,11 @@ class Tx(Protocol):
     def update_exception(self, exception_id: int, status: str, reason: str | None) -> Row: ...
 
     def insert_approval(
-        self, route_id: str, stop_id: str | None, amount_usd: float, justification: str,
+        self,
+        route_id: str,
+        stop_id: str | None,
+        amount_usd: float,
+        justification: str,
         requested_by: str,
     ) -> Row: ...
 
@@ -43,22 +52,38 @@ class Tx(Protocol):
         self, approval_id: int, status: str, decided_by: str, comment: str
     ) -> Row: ...
 
-    def insert_comment(self, entity_type: str, entity_id: str, body: str, created_by: str) -> Row: ...
+    def insert_comment(
+        self, entity_type: str, entity_id: str, body: str, created_by: str
+    ) -> Row: ...
 
     def upsert_route_state(self, route_id: str, state: str, updated_by: str) -> Row: ...
 
     def insert_audit(
-        self, actor: str, action: str, entity_type: str, entity_id: str,
-        payload: dict[str, Any], reason: str | None,
+        self,
+        actor: str,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        payload: dict[str, Any],
+        reason: str | None,
     ) -> Row: ...
 
     def insert_genie_message(
-        self, user_name: str, conversation_id: str, message_id: str, question: str,
-        answer: str | None, sql: str | None,
+        self,
+        user_name: str,
+        conversation_id: str,
+        message_id: str,
+        question: str,
+        answer: str | None,
+        sql: str | None,
     ) -> Row: ...
 
     def insert_genie_feedback(
-        self, user_name: str, conversation_id: str, message_id: str, rating: str,
+        self,
+        user_name: str,
+        conversation_id: str,
+        message_id: str,
+        rating: str,
         comment: str | None,
     ) -> Row: ...
 
@@ -82,16 +107,24 @@ class Store(Protocol):
         self, status: str | None = None, route_id: str | None = None, stop_id: str | None = None
     ) -> list[Row]: ...
 
-    def list_approvals(self, status: str | None = None, route_id: str | None = None) -> list[Row]: ...
+    def list_approvals(
+        self, status: str | None = None, route_id: str | None = None
+    ) -> list[Row]: ...
 
     def list_comments(self, entity_type: str, entity_id: str) -> list[Row]: ...
 
     def list_route_state(self) -> list[Row]: ...
 
     def list_audit(
-        self, actor: str | None = None, action: str | None = None,
-        entity_type: str | None = None, entity_id: str | None = None,
-        since: datetime | None = None, limit: int = 200,
+        self,
+        actor: str | None = None,
+        action: str | None = None,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        since: datetime | None = None,
+        limit: int = 200,
     ) -> list[Row]: ...
 
-    def list_genie_messages(self, user_name: str, conversation_id: str | None = None) -> list[Row]: ...
+    def list_genie_messages(
+        self, user_name: str, conversation_id: str | None = None
+    ) -> list[Row]: ...

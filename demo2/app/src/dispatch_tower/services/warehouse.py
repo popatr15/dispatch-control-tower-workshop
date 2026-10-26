@@ -99,13 +99,20 @@ class SqlWarehouseReader:
         if not resp.status or resp.status.state != StatementState.SUCCEEDED:
             message = resp.status.error.message if resp.status and resp.status.error else "failed"
             raise WarehouseError(message)
-        columns = [(c.name, (c.type_name.value if c.type_name else "STRING"))
-                   for c in resp.manifest.schema.columns]
+        columns = [
+            (c.name, (c.type_name.value if c.type_name else "STRING"))
+            for c in resp.manifest.schema.columns
+        ]
         rows: list[Row] = []
         result = resp.result
         while True:
             for raw in (result.data_array or []) if result else []:
-                rows.append({name: _convert(val, typ) for (name, typ), val in zip(columns, raw)})
+                rows.append(
+                    {
+                        name: _convert(val, typ)
+                        for (name, typ), val in zip(columns, raw, strict=False)
+                    }
+                )
             if not result or not result.next_chunk_index:
                 break
             result = self._ws.statement_execution.get_statement_result_chunk_n(
@@ -123,12 +130,14 @@ class SqlWarehouseReader:
         )
 
     def carriers(self) -> list[Row]:
-        return self.query(f"SELECT carrier_id, name, scac FROM {self._t('carriers')} "
-                          "ORDER BY carrier_id")
+        return self.query(
+            f"SELECT carrier_id, name, scac FROM {self._t('carriers')} ORDER BY carrier_id"
+        )
 
     def route_dates(self) -> list[date]:
-        rows = self.query(f"SELECT DISTINCT route_date FROM {self._t('routes')} "
-                          "ORDER BY route_date DESC LIMIT 31")
+        rows = self.query(
+            f"SELECT DISTINCT route_date FROM {self._t('routes')} ORDER BY route_date DESC LIMIT 31"
+        )
         return [r["route_date"] for r in rows]
 
     def routes(self, day: date) -> list[Row]:

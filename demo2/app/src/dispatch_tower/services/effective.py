@@ -27,11 +27,18 @@ def apply_overrides(stops: list[Row], latest: dict[str, Row]) -> list[Row]:
     return out
 
 
-def filter_rows(rows: list[Row], *, depot_id: str | None = None, carrier_id: str | None = None,
-                region: str | None = None, route_id: str | None = None,
-                status: str | None = None) -> list[Row]:
+def filter_rows(
+    rows: list[Row],
+    *,
+    depot_id: str | None = None,
+    carrier_id: str | None = None,
+    region: str | None = None,
+    route_id: str | None = None,
+    status: str | None = None,
+) -> list[Row]:
     return [
-        r for r in rows
+        r
+        for r in rows
         if (depot_id is None or r.get("depot_id") == depot_id)
         and (carrier_id is None or r.get("carrier_id") == carrier_id)
         and (region is None or r.get("region") == region)
@@ -54,8 +61,12 @@ def apply_route_state(routes: list[Row], states: list[Row]) -> list[Row]:
     return out
 
 
-def route_rollups(routes: list[Row], effective_stops: list[Row], open_exceptions: list[Row],
-                  pending_approvals: list[Row]) -> list[Row]:
+def route_rollups(
+    routes: list[Row],
+    effective_stops: list[Row],
+    open_exceptions: list[Row],
+    pending_approvals: list[Row],
+) -> list[Row]:
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for stop in effective_stops:
         c = counts[stop["route_id"]]
@@ -70,14 +81,16 @@ def route_rollups(routes: list[Row], effective_stops: list[Row], open_exceptions
     out = []
     for route in routes:
         c = counts.get(route["route_id"], {})
-        out.append({
-            **route,
-            "effective_stops": c.get("total", 0),
-            "late_stops": c.get("late", 0),
-            "at_risk_stops": c.get("at_risk", 0),
-            "open_exceptions": exc.get(route["route_id"], 0),
-            "pending_approvals": appr.get(route["route_id"], 0),
-        })
+        out.append(
+            {
+                **route,
+                "effective_stops": c.get("total", 0),
+                "late_stops": c.get("late", 0),
+                "at_risk_stops": c.get("at_risk", 0),
+                "open_exceptions": exc.get(route["route_id"], 0),
+                "pending_approvals": appr.get(route["route_id"], 0),
+            }
+        )
     return sorted(out, key=lambda r: (-(r.get("risk_score") or 0), r["route_id"]))
 
 
@@ -88,8 +101,18 @@ def cluster_stops(stops: list[Row], cell_deg: float) -> list[Row]:
     cells: dict[tuple[int, int], Row] = {}
     for stop in stops:
         key = (math.floor(stop["lat"] / cell_deg), math.floor(stop["lon"] / cell_deg))
-        cell = cells.setdefault(key, {"lat": 0.0, "lon": 0.0, "count": 0, "late": 0,
-                                      "at_risk": 0, "on_time": 0, "delivered": 0})
+        cell = cells.setdefault(
+            key,
+            {
+                "lat": 0.0,
+                "lon": 0.0,
+                "count": 0,
+                "late": 0,
+                "at_risk": 0,
+                "on_time": 0,
+                "delivered": 0,
+            },
+        )
         cell["lat"] += stop["lat"]
         cell["lon"] += stop["lon"]
         cell["count"] += 1
@@ -97,10 +120,18 @@ def cluster_stops(stops: list[Row], cell_deg: float) -> list[Row]:
     out = []
     for cell in cells.values():
         n = cell["count"]
-        worst = max(("late", "at_risk", "on_time", "delivered"),
-                    key=lambda s: (cell[s] > 0, STATUS_SEVERITY[s]))
-        out.append({**cell, "lat": round(cell["lat"] / n, 5), "lon": round(cell["lon"] / n, 5),
-                    "worst_status": worst})
+        worst = max(
+            ("late", "at_risk", "on_time", "delivered"),
+            key=lambda s: (cell[s] > 0, STATUS_SEVERITY[s]),
+        )
+        out.append(
+            {
+                **cell,
+                "lat": round(cell["lat"] / n, 5),
+                "lon": round(cell["lon"] / n, 5),
+                "worst_status": worst,
+            }
+        )
     return sorted(out, key=lambda c: -c["count"])
 
 
@@ -114,12 +145,14 @@ def build_paths(points: list[Row], routes: list[Row]) -> list[Row]:
         if route_id not in meta:
             continue
         pts.sort(key=lambda p: p["seq"])
-        out.append({
-            "route_id": route_id,
-            "depot_id": meta[route_id]["depot_id"],
-            "risk_score": meta[route_id].get("risk_score") or 0.0,
-            "path": [(p["lon"], p["lat"]) for p in pts],  # deck.gl order: [lon, lat]
-        })
+        out.append(
+            {
+                "route_id": route_id,
+                "depot_id": meta[route_id]["depot_id"],
+                "risk_score": meta[route_id].get("risk_score") or 0.0,
+                "path": [(p["lon"], p["lat"]) for p in pts],  # deck.gl order: [lon, lat]
+            }
+        )
     return out
 
 
@@ -127,8 +160,9 @@ def heat_cells(cells: list[Row], *, depot_id=None, carrier_id=None, region=None)
     merged: dict[tuple[float, float], Row] = {}
     for c in filter_rows(cells, depot_id=depot_id, carrier_id=carrier_id, region=region):
         key = (c["lat"], c["lon"])
-        m = merged.setdefault(key, {"lat": c["lat"], "lon": c["lon"], "deliveries": 0,
-                                    "on_time": 0})
+        m = merged.setdefault(
+            key, {"lat": c["lat"], "lon": c["lon"], "deliveries": 0, "on_time": 0}
+        )
         m["deliveries"] += int(c["deliveries"] or 0)
         m["on_time"] += int(c["on_time"] or 0)
     return [
