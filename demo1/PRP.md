@@ -25,7 +25,7 @@ Genie space for the chat box: `{{GENIE_SPACE_ID}}`.
 
 - **Left:** at-risk routes, highest risk first, with the reason. Click one to zoom the map to it.
 - **Center:** map of today's stops colored by status, depot markers, and route lines.
-- **Right:** click a stop to reassign it (pick a route, a reason, optional note) or log an exception. Tabs for the exception list and the Genie chat.
+- **Right:** click a stop to reassign it or log an exception. For an at-risk stop, suggest a reassign (a nearby route from the same depot with a lower risk score) that the dispatcher can accept in one click, with a one-line reason; they can still pick any route, a reason code, and an optional note. Tabs for the exception list and the Genie chat.
 
 A reassigned stop shows on its new route after a page reload.
 
@@ -37,6 +37,6 @@ A reassigned stop shows on its new route after a page reload.
 
 ## Done when
 
-- The map loads with today's stops and routes.
+- The map loads with today's stops and routes, and each route's line passes through its own stops only.
 - Reassigning a stop and logging an exception survive a reload.
 - Asking Genie "Which depots missed SLA most last week?" returns an answer with its SQL.
