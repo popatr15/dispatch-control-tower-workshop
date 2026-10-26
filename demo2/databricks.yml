@@ -21,8 +21,8 @@ sync:
 
 artifacts:
   ui:
-    # Build the React UI into app/src/dispatch_tower/static before upload.
-    build: bun install --cwd app/ui --frozen-lockfile && bun run --cwd app/ui build
+    # Runs in `path`; builds the React UI into app/src/dispatch_tower/static before upload.
+    build: bun install --frozen-lockfile && bun run build
     path: app/ui
 
 variables:
