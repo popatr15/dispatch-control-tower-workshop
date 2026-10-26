@@ -39,16 +39,20 @@ def scalar(w: WorkspaceClient, warehouse_id: str, sql: str) -> Any:
     return result_rows[0][0]
 
 
+def scalar_int(w: WorkspaceClient, warehouse_id: str, sql: str) -> int:
+    return int(scalar(w, warehouse_id, sql))
+
+
 def assert_sql_story(config: Config, w: WorkspaceClient, warehouse_id: str) -> None:
-    assert scalar(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'depots')}") == 8
-    assert scalar(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'carriers')}") >= 3
-    assert scalar(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'vehicles')}") >= 60
-    assert scalar(
+    assert scalar_int(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'depots')}") == 8
+    assert scalar_int(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'carriers')}") >= 3
+    assert scalar_int(w, warehouse_id, f"SELECT COUNT(*) FROM {fq(config, 'vehicles')}") >= 60
+    assert scalar_int(
         w,
         warehouse_id,
         f"SELECT COUNT(*) FROM {fq(config, 'stops')} WHERE route_date = current_date()",
     ) >= 2500
-    assert scalar(
+    assert scalar_int(
         w,
         warehouse_id,
         f"SELECT COUNT(*) FROM {fq(config, 'routes')} WHERE risk_score >= 0.75",

@@ -70,6 +70,15 @@ def run_cli_json(args: list[str], profile: str) -> Any:
     return json.loads(output) if output else {}
 
 
+def json_items(payload: Any, key: str) -> list[Any]:
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        value = payload.get(key, [])
+        return value if isinstance(value, list) else []
+    return []
+
+
 def wait_for_statement(w: WorkspaceClient, statement_id: str) -> Any:
     while True:
         response = w.statement_execution.get_statement(statement_id)
@@ -120,7 +129,9 @@ def select_warehouse(w: WorkspaceClient, requested: str | None) -> str:
 
 def create_uc_objects(config: Config, w: WorkspaceClient, warehouse_id: str) -> None:
     try:
-        execute_sql(w, warehouse_id, f"CREATE CATALOG IF NOT EXISTS {quote_ident(config.catalog)}")
+        existing_catalogs = {catalog.name for catalog in w.catalogs.list()}
+        if config.catalog not in existing_catalogs:
+            execute_sql(w, warehouse_id, f"CREATE CATALOG IF NOT EXISTS {quote_ident(config.catalog)}")
         execute_sql(
             w,
             warehouse_id,
@@ -157,11 +168,9 @@ def path_exists(config: Config, dbfs_path: str) -> bool:
 
 def create_table_sql(config: Config, table: str, volume_path: str) -> str:
     projections = ",\n  ".join(f"{column.json_expr} AS {quote_ident(column.name)}" for column in TABLE_COLUMNS[table])
-    columns = ", ".join(f"{quote_ident(column.name)} {column.sql_type}" for column in TABLE_COLUMNS[table])
     path = f"{volume_path}/{table}.jsonl"
     return f"""
 CREATE OR REPLACE TABLE {table_name(config, table)}
-({columns})
 USING DELTA
 AS
 SELECT
@@ -330,7 +339,7 @@ def find_genie_space(profile: str) -> str | None:
         payload = run_cli_json(["genie", "list-spaces"], profile)
     except RuntimeError:
         return None
-    spaces = payload.get("spaces", payload if isinstance(payload, list) else [])
+    spaces = json_items(payload, "spaces")
     for space in spaces:
         if space.get("title") == GENIE_TITLE:
             return space.get("space_id") or space.get("id")
@@ -382,7 +391,7 @@ def ensure_lakebase(config: Config) -> dict[str, str]:
     project_id = lakebase_project_id(config)
     project_name = f"projects/{project_id}"
     projects = run_cli_json(["postgres", "list-projects"], config.profile)
-    existing = projects.get("projects", projects if isinstance(projects, list) else [])
+    existing = json_items(projects, "projects")
     if not any(project.get("name") == project_name for project in existing):
         print(f"Creating Lakebase project {project_id}")
         run_cli(
@@ -397,13 +406,13 @@ def ensure_lakebase(config: Config) -> dict[str, str]:
         )
 
     branches = run_cli_json(["postgres", "list-branches", project_name], config.profile)
-    branch = (branches.get("branches", branches if isinstance(branches, list) else []) or [])[0]
+    branch = json_items(branches, "branches")[0]
     branch_name = branch["name"]
     endpoints = run_cli_json(["postgres", "list-endpoints", branch_name], config.profile)
-    endpoint = (endpoints.get("endpoints", endpoints if isinstance(endpoints, list) else []) or [])[0]
+    endpoint = json_items(endpoints, "endpoints")[0]
     endpoint_name = endpoint["name"]
     databases = run_cli_json(["postgres", "list-databases", branch_name], config.profile)
-    database = (databases.get("databases", databases if isinstance(databases, list) else []) or [])[0]
+    database = json_items(databases, "databases")[0]
     database_name = database["name"]
     endpoint_detail = run_cli_json(["postgres", "get-endpoint", endpoint_name], config.profile)
     host = endpoint_detail.get("status", {}).get("hosts", {}).get("host", "")
