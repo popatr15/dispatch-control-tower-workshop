@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[oc]
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# JS
+node_modules/
+.tanstack/
+ui/dist/
+
+# Built UI copied into the app package at build time
+app/src/dispatch_tower/static/
+
+# Bundles / env
+.databricks/
+.env
+.env.*
+!.env.example
+
+.DS_Store
