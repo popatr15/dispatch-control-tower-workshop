@@ -47,4 +47,5 @@ def filters(ctx: Ctx) -> FiltersOut:
         reason_codes=list(REASSIGNMENT_REASONS),
         exception_types=list(EXCEPTION_TYPES),
         route_states=list(ROUTE_STATES),
+        max_map_points=ctx.settings.max_map_points,
     )

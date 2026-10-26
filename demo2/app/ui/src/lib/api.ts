@@ -222,6 +222,7 @@ export interface FiltersOut {
   dates: string[];
   depots: DepotOut[];
   exception_types: string[];
+  max_map_points: number;
   reason_codes: string[];
   regions: string[];
   route_states: string[];
@@ -294,6 +295,24 @@ export interface HeatCellOut {
   on_time_pct: number;
 }
 
+export interface HubOut {
+  at_risk_routes: number;
+  at_risk_stops: number;
+  catchment_radius_km: number;
+  city: string;
+  depot_id: string;
+  lat: number;
+  late_stops: number;
+  lon: number;
+  name: string;
+  on_time_pct?: number | null;
+  region: string;
+  routes: number;
+  sla_target_pct: number;
+  state: string;
+  stops: number;
+}
+
 export type MeOutRole = typeof MeOutRole[keyof typeof MeOutRole];
 
 
@@ -359,6 +378,7 @@ export const RouteOutStatus = {
 
 export interface RouteOut {
   at_risk_stops: number;
+  capacity_stops?: number | null;
   carrier_id?: string | null;
   depot_id: string;
   driver_name?: string | null;
@@ -463,6 +483,41 @@ export interface RouteStateOut {
   updated_by: string;
 }
 
+export type SuggestionOutStopStatus = typeof SuggestionOutStopStatus[keyof typeof SuggestionOutStopStatus];
+
+
+export const SuggestionOutStopStatus = {
+  delivered: 'delivered',
+  on_time: 'on_time',
+  at_risk: 'at_risk',
+  late: 'late',
+} as const;
+
+export interface SuggestionOut {
+  customer_name?: string | null;
+  distance_km: number;
+  from_risk_score: number;
+  from_route_id: string;
+  late_minutes?: number;
+  rank: number;
+  reason: string;
+  risk_delta: number;
+  score: number;
+  sequence: number;
+  spare_slots: number;
+  stop_id: string;
+  stop_status: SuggestionOutStopStatus;
+  to_risk_score: number;
+  to_route_id: string;
+}
+
+export interface RouteSuggestionsOut {
+  at_risk: boolean;
+  at_risk_threshold: number;
+  route_id: string;
+  suggestions: SuggestionOut[];
+}
+
 export type StopClusterOutWorstStatus = typeof StopClusterOutWorstStatus[keyof typeof StopClusterOutWorstStatus];
 
 
@@ -524,6 +579,10 @@ export type ListGenieHistoryParams = {
 conversation_id?: string | null;
 };
 
+export type ListHubsParams = {
+day?: string | null;
+};
+
 export type GetStopClustersParams = {
 day?: string | null;
 /**
@@ -562,6 +621,10 @@ region?: string | null;
 };
 
 export type GetRouteParams = {
+day?: string | null;
+};
+
+export type GetRouteSuggestionsParams = {
 day?: string | null;
 };
 
@@ -2424,6 +2487,167 @@ export function useHealthSuspense<TData = Awaited<ReturnType<typeof health>>, TE
 
 
 /**
+ * @summary List Hubs
+ */
+export const listHubs = (
+    params?: ListHubsParams, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<HubOut[]>> => {
+
+
+    return axios.get(
+      `/api/hubs`,{
+    ...options,
+        params: {...params, ...options?.params},}
+    );
+  }
+
+export const getListHubsUrl = (params?: ListHubsParams,) => {
+
+  return axios.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/hubs`,
+    baseURL: '',
+    params,
+
+  });
+}
+
+
+
+
+export const getListHubsQueryKey = (params?: ListHubsParams,) => {
+    return [
+    `/api/hubs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListHubsQueryOptions = <TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(params?: ListHubsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListHubsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listHubs>>> = ({ signal }) => listHubs(params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListHubsQueryResult = NonNullable<Awaited<ReturnType<typeof listHubs>>>
+export type ListHubsQueryError = AxiosError<HTTPValidationError>
+
+
+export function useListHubs<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params: undefined |  ListHubsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listHubs>>,
+          TError,
+          Awaited<ReturnType<typeof listHubs>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListHubs<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listHubs>>,
+          TError,
+          Awaited<ReturnType<typeof listHubs>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListHubs<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Hubs
+ */
+
+export function useListHubs<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListHubsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getListHubsSuspenseQueryOptions = <TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(params?: ListHubsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListHubsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listHubs>>> = ({ signal }) => listHubs(params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  queryOptionsBuilder({ queryKey, ...queryOptions, queryFn: queryOptions?.queryFn ?? queryFn}) as UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> } & { throwOnError?: ((this: never, error: TError) => boolean) & { readonly __inferenceOnly: never } }
+}
+
+export type ListHubsSuspenseQueryResult = NonNullable<Awaited<ReturnType<typeof listHubs>>>
+export type ListHubsSuspenseQueryError = AxiosError<HTTPValidationError>
+
+
+export function useListHubsSuspense<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params: undefined |  ListHubsParams, options: { query:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListHubsSuspense<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListHubsSuspense<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Hubs
+ */
+
+export function useListHubsSuspense<TData = Awaited<ReturnType<typeof listHubs>>, TError = AxiosError<HTTPValidationError>>(
+ params?: ListHubsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof listHubs>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListHubsSuspenseQueryOptions(params,options)
+
+  const query = useSuspenseQuery(queryOptions, queryClient) as  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+/**
  * @summary Stop Clusters
  */
 export const getStopClusters = (
@@ -3637,6 +3861,180 @@ export const useSetRouteState = <TError = AxiosError<HTTPValidationError>,
       > => {
       return useMutation(getSetRouteStateMutationOptions(options), queryClient);
     }
+
+/**
+ * @summary Route Suggestions
+ */
+export const getRouteSuggestions = (
+    routeId: string,
+    params?: GetRouteSuggestionsParams, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<RouteSuggestionsOut>> => {
+
+
+    return axios.get(
+      `/api/routes/${routeId}/suggestions`,{
+    ...options,
+        params: {...params, ...options?.params},}
+    );
+  }
+
+export const getGetRouteSuggestionsUrl = (routeId: string,
+    params?: GetRouteSuggestionsParams,) => {
+
+  return axios.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/routes/${routeId}/suggestions`,
+    baseURL: '',
+    params,
+
+  });
+}
+
+
+
+
+export const getGetRouteSuggestionsQueryKey = (routeId: string,
+    params?: GetRouteSuggestionsParams,) => {
+    return [
+    `/api/routes/${routeId}/suggestions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRouteSuggestionsQueryOptions = <TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRouteSuggestionsQueryKey(routeId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouteSuggestions>>> = ({ signal }) => getRouteSuggestions(routeId,params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: routeId !== null && routeId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRouteSuggestionsQueryResult = NonNullable<Awaited<ReturnType<typeof getRouteSuggestions>>>
+export type GetRouteSuggestionsQueryError = AxiosError<HTTPValidationError>
+
+
+export function useGetRouteSuggestions<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params: undefined |  GetRouteSuggestionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRouteSuggestions>>,
+          TError,
+          Awaited<ReturnType<typeof getRouteSuggestions>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteSuggestions<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRouteSuggestions>>,
+          TError,
+          Awaited<ReturnType<typeof getRouteSuggestions>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteSuggestions<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Route Suggestions
+ */
+
+export function useGetRouteSuggestions<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRouteSuggestionsQueryOptions(routeId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getGetRouteSuggestionsSuspenseQueryOptions = <TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRouteSuggestionsQueryKey(routeId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouteSuggestions>>> = ({ signal }) => getRouteSuggestions(routeId,params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  queryOptionsBuilder({ queryKey, ...queryOptions, queryFn: queryOptions?.queryFn ?? queryFn}) as UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> } & { throwOnError?: ((this: never, error: TError) => boolean) & { readonly __inferenceOnly: never } }
+}
+
+export type GetRouteSuggestionsSuspenseQueryResult = NonNullable<Awaited<ReturnType<typeof getRouteSuggestions>>>
+export type GetRouteSuggestionsSuspenseQueryError = AxiosError<HTTPValidationError>
+
+
+export function useGetRouteSuggestionsSuspense<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params: undefined |  GetRouteSuggestionsParams, options: { query:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteSuggestionsSuspense<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteSuggestionsSuspense<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Route Suggestions
+ */
+
+export function useGetRouteSuggestionsSuspense<TData = Awaited<ReturnType<typeof getRouteSuggestions>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteSuggestionsParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteSuggestions>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRouteSuggestionsSuspenseQueryOptions(routeId,params,options)
+
+  const query = useSuspenseQuery(queryOptions, queryClient) as  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 /**
  * @summary List Stops

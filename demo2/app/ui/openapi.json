@@ -525,6 +525,10 @@
             "title": "Exception Types",
             "type": "array"
           },
+          "max_map_points": {
+            "title": "Max Map Points",
+            "type": "integer"
+          },
           "reason_codes": {
             "items": {
               "type": "string"
@@ -560,7 +564,8 @@
           "regions",
           "reason_codes",
           "exception_types",
-          "route_states"
+          "route_states",
+          "max_map_points"
         ],
         "title": "FiltersOut",
         "type": "object"
@@ -797,6 +802,95 @@
         "title": "HeatCellOut",
         "type": "object"
       },
+      "HubOut": {
+        "properties": {
+          "at_risk_routes": {
+            "title": "At Risk Routes",
+            "type": "integer"
+          },
+          "at_risk_stops": {
+            "title": "At Risk Stops",
+            "type": "integer"
+          },
+          "catchment_radius_km": {
+            "title": "Catchment Radius Km",
+            "type": "number"
+          },
+          "city": {
+            "title": "City",
+            "type": "string"
+          },
+          "depot_id": {
+            "title": "Depot Id",
+            "type": "string"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "late_stops": {
+            "title": "Late Stops",
+            "type": "integer"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "on_time_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Time Pct"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "routes": {
+            "title": "Routes",
+            "type": "integer"
+          },
+          "sla_target_pct": {
+            "title": "Sla Target Pct",
+            "type": "number"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "stops": {
+            "title": "Stops",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "depot_id",
+          "name",
+          "city",
+          "state",
+          "region",
+          "lat",
+          "lon",
+          "catchment_radius_km",
+          "sla_target_pct",
+          "routes",
+          "at_risk_routes",
+          "stops",
+          "late_stops",
+          "at_risk_stops"
+        ],
+        "title": "HubOut",
+        "type": "object"
+      },
       "MeOut": {
         "properties": {
           "can_switch_role": {
@@ -989,6 +1083,17 @@
           "at_risk_stops": {
             "title": "At Risk Stops",
             "type": "integer"
+          },
+          "capacity_stops": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Stops"
           },
           "carrier_id": {
             "anyOf": [
@@ -1238,6 +1343,37 @@
           "updated_at"
         ],
         "title": "RouteStateOut",
+        "type": "object"
+      },
+      "RouteSuggestionsOut": {
+        "properties": {
+          "at_risk": {
+            "title": "At Risk",
+            "type": "boolean"
+          },
+          "at_risk_threshold": {
+            "title": "At Risk Threshold",
+            "type": "number"
+          },
+          "route_id": {
+            "title": "Route Id",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionOut"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "route_id",
+          "at_risk",
+          "at_risk_threshold",
+          "suggestions"
+        ],
+        "title": "RouteSuggestionsOut",
         "type": "object"
       },
       "StopClusterOut": {
@@ -1504,6 +1640,101 @@
           "depot_id"
         ],
         "title": "StopOut",
+        "type": "object"
+      },
+      "SuggestionOut": {
+        "properties": {
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "distance_km": {
+            "title": "Distance Km",
+            "type": "number"
+          },
+          "from_risk_score": {
+            "title": "From Risk Score",
+            "type": "number"
+          },
+          "from_route_id": {
+            "title": "From Route Id",
+            "type": "string"
+          },
+          "late_minutes": {
+            "default": 0,
+            "title": "Late Minutes",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "risk_delta": {
+            "title": "Risk Delta",
+            "type": "number"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "spare_slots": {
+            "title": "Spare Slots",
+            "type": "integer"
+          },
+          "stop_id": {
+            "title": "Stop Id",
+            "type": "string"
+          },
+          "stop_status": {
+            "enum": [
+              "delivered",
+              "on_time",
+              "at_risk",
+              "late"
+            ],
+            "title": "Stop Status",
+            "type": "string"
+          },
+          "to_risk_score": {
+            "title": "To Risk Score",
+            "type": "number"
+          },
+          "to_route_id": {
+            "title": "To Route Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stop_id",
+          "stop_status",
+          "sequence",
+          "from_route_id",
+          "from_risk_score",
+          "to_route_id",
+          "to_risk_score",
+          "risk_delta",
+          "distance_km",
+          "spare_slots",
+          "rank",
+          "score",
+          "reason"
+        ],
+        "title": "SuggestionOut",
         "type": "object"
       },
       "ValidationError": {
@@ -2886,6 +3117,60 @@
         ]
       }
     },
+    "/api/hubs": {
+      "get": {
+        "operationId": "listHubs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HubOut"
+                  },
+                  "title": "Response Listhubs",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Hubs",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/api/map/clusters": {
       "get": {
         "operationId": "getStopClusters",
@@ -3594,6 +3879,65 @@
           }
         },
         "summary": "Set Route State",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/routes/{route_id}/suggestions": {
+      "get": {
+        "operationId": "getRouteSuggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_id",
+            "required": true,
+            "schema": {
+              "title": "Route Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteSuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Route Suggestions",
         "tags": [
           "operations"
         ]

@@ -102,7 +102,8 @@ def build(
                 depot_id=depot["depot_id"],
                 carrier_id=CARRIERS[i % len(CARRIERS)][0],
                 vehicle_type="box_truck" if i % 3 else "van",
-                capacity_stops=120,
+                # 100 (full at the default 100 stops/route), 110 or 120
+                capacity_stops=100 + 10 * (i % 3),
             )
         )
 

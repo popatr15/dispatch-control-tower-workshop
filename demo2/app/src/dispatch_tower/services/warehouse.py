@@ -144,7 +144,7 @@ class SqlWarehouseReader:
         return self.query(
             f"SELECT r.route_id, r.route_date, r.depot_id, r.vehicle_id, v.carrier_id, "
             f"r.driver_name, r.planned_start_ts, r.status, r.planned_stops, r.risk_score, "
-            f"r.risk_reason FROM {self._t('routes')} r "
+            f"r.risk_reason, v.capacity_stops FROM {self._t('routes')} r "
             f"LEFT JOIN {self._t('vehicles')} v ON v.vehicle_id = r.vehicle_id "
             f"WHERE r.route_date = :day ORDER BY r.risk_score DESC",
             {"day": (day.isoformat(), "DATE")},
@@ -203,7 +203,12 @@ class MockReader:
         return [self._d.today]
 
     def routes(self, day: date) -> list[Row]:
-        rows = [dict(r) for r in self._d.routes if r["route_date"] == day]
+        capacity = {v["vehicle_id"]: v["capacity_stops"] for v in self._d.vehicles}
+        rows = [
+            {**r, "capacity_stops": capacity.get(r["vehicle_id"])}
+            for r in self._d.routes
+            if r["route_date"] == day
+        ]
         return sorted(rows, key=lambda r: r["risk_score"], reverse=True)
 
     def stops(self, day: date) -> list[Row]:

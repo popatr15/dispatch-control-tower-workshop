@@ -10,6 +10,7 @@ from ..deps import Ctx, Who
 from ..models import (
     DepotOut,
     HeatCellOut,
+    HubOut,
     ReassignIn,
     ReassignmentOut,
     RouteDetailOut,
@@ -17,11 +18,12 @@ from ..models import (
     RoutePathOut,
     RouteStateIn,
     RouteStateOut,
+    RouteSuggestionsOut,
     StopClusterOut,
     StopDetailOut,
     StopOut,
 )
-from ..services import effective
+from ..services import effective, recommend
 
 router = APIRouter(tags=["operations"])
 
@@ -48,6 +50,13 @@ def _routes(ctx, day: date) -> list[dict]:
 @router.get("/depots", response_model=list[DepotOut], operation_id="listDepots")
 def list_depots(ctx: Ctx):
     return ctx.reader.depots()
+
+
+@router.get("/hubs", response_model=list[HubOut], operation_id="listHubs")
+def list_hubs(ctx: Ctx, day: date | None = None):
+    d = _day(ctx, day)
+    routes = effective.apply_route_state(ctx.reader.routes(d), ctx.store.list_route_state())
+    return recommend.hub_summaries(ctx.reader.depots(), routes, _effective_stops(ctx, d))
 
 
 @router.get("/routes", response_model=list[RouteOut], operation_id="listRoutes")
@@ -80,6 +89,25 @@ def get_route(ctx: Ctx, route_id: str, day: date | None = None):
         stops=stops,
         comments=ctx.store.list_comments("route", route_id),
         approvals=ctx.store.list_approvals(route_id=route_id),
+    )
+
+
+@router.get(
+    "/routes/{route_id}/suggestions",
+    response_model=RouteSuggestionsOut,
+    operation_id="getRouteSuggestions",
+)
+def route_suggestions(ctx: Ctx, route_id: str, day: date | None = None):
+    d = _day(ctx, day)
+    routes = effective.apply_route_state(ctx.reader.routes(d), ctx.store.list_route_state())
+    route = next((r for r in routes if r["route_id"] == route_id), None)
+    if route is None:
+        raise HTTPException(404, f"route {route_id} not found")
+    return RouteSuggestionsOut(
+        route_id=route_id,
+        at_risk=(route.get("risk_score") or 0) >= recommend.AT_RISK_ROUTE_SCORE,
+        at_risk_threshold=recommend.AT_RISK_ROUTE_SCORE,
+        suggestions=recommend.suggest_reassigns(route_id, routes, _effective_stops(ctx, d)),
     )
 
 

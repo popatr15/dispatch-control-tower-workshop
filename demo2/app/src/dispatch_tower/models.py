@@ -59,6 +59,7 @@ class FiltersOut(BaseModel):
     reason_codes: list[str]
     exception_types: list[str]
     route_states: list[str]
+    max_map_points: int
 
 
 class RouteOut(BaseModel):
@@ -73,6 +74,7 @@ class RouteOut(BaseModel):
     state_updated_by: str | None = None
     state_updated_at: datetime | None = None
     planned_stops: int
+    capacity_stops: int | None = None
     effective_stops: int
     late_stops: int
     at_risk_stops: int
@@ -224,6 +226,40 @@ class RouteDetailOut(BaseModel):
     stops: list[StopOut]
     comments: list[CommentOut]
     approvals: list[ApprovalOut]
+
+
+class HubOut(DepotOut):
+    routes: int
+    at_risk_routes: int
+    stops: int
+    late_stops: int
+    at_risk_stops: int
+    on_time_pct: float | None = None
+
+
+class SuggestionOut(BaseModel):
+    stop_id: str
+    stop_status: StopStatus
+    customer_name: str | None = None
+    sequence: int
+    late_minutes: int = 0
+    from_route_id: str
+    from_risk_score: float
+    to_route_id: str
+    to_risk_score: float
+    risk_delta: float
+    distance_km: float
+    spare_slots: int
+    rank: int
+    score: float
+    reason: str
+
+
+class RouteSuggestionsOut(BaseModel):
+    route_id: str
+    at_risk: bool
+    at_risk_threshold: float
+    suggestions: list[SuggestionOut]
 
 
 class StopClusterOut(BaseModel):
