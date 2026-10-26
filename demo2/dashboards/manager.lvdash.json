@@ -1,0 +1,841 @@
+{
+  "datasets": [
+    {
+      "name": "ds_sla",
+      "displayName": "Depot SLA (30 days)",
+      "queryLines": [
+        "SELECT d.name AS depot, d.region, s.sla_date, s.deliveries, s.on_time, s.on_time_pct, ",
+        "s.sla_target_pct, CASE WHEN s.sla_met THEN 0 ELSE 1 END AS missed_day ",
+        "FROM depot_sla_daily s JOIN depots d ON d.depot_id = s.depot_id ",
+        "WHERE s.sla_date >= date_sub(current_date(), 30) AND s.sla_date < current_date()"
+      ]
+    },
+    {
+      "name": "ds_sla_week",
+      "displayName": "SLA last week by depot",
+      "queryLines": [
+        "SELECT d.name AS depot, d.region, ROUND(SUM(s.on_time) / SUM(s.deliveries), 4) AS on_time_pct, ",
+        "MAX(s.sla_target_pct) AS sla_target_pct, SUM(CASE WHEN s.sla_met THEN 0 ELSE 1 END) AS missed_days, ",
+        "SUM(s.deliveries) AS deliveries FROM depot_sla_daily s JOIN depots d ON d.depot_id = s.depot_id ",
+        "WHERE s.sla_date >= date_sub(current_date(), 7) AND s.sla_date < current_date() ",
+        "GROUP BY d.name, d.region ORDER BY missed_days DESC, on_time_pct"
+      ]
+    },
+    {
+      "name": "ds_late",
+      "displayName": "Late deliveries by cause (30 days)",
+      "queryLines": [
+        "SELECT h.delivery_date, h.region, h.cause_code, c.name AS carrier, COUNT(*) AS late_deliveries ",
+        "FROM delivery_history h JOIN carriers c ON c.carrier_id = h.carrier_id ",
+        "WHERE h.on_time = false AND h.delivery_date >= date_sub(current_date(), 30) ",
+        "GROUP BY h.delivery_date, h.region, h.cause_code, c.name"
+      ]
+    },
+    {
+      "name": "ds_decisions",
+      "displayName": "Decisions synced from the app",
+      "queryLines": [
+        "SELECT CAST(decided_at AS TIMESTAMP) AS decided_at, DATE(CAST(decided_at AS TIMESTAMP)) AS decision_date, ",
+        "decision_type, decision, COALESCE(reason_code, 'n/a') AS reason_code, actor_role, ",
+        "feat_region AS region, outcome_known, outcome_on_time, amount_usd FROM decision_labels"
+      ]
+    },
+    {
+      "name": "ds_exceptions",
+      "displayName": "Exceptions opened",
+      "queryLines": [
+        "SELECT reason_code AS exception_type, region, DATE(CAST(decided_at AS TIMESTAMP)) AS decision_date ",
+        "FROM decision_labels WHERE decision_type = 'exception' AND decision = 'open'"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "manager",
+      "displayName": "Manager view",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Dispatch manager view\n",
+                "SLA by depot, late-delivery causes, exceptions by type, and the volume of dispatcher decisions synced back from the app (Lakebase -> `decision_labels`)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_otp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "otp",
+                      "expression": "SUM(`on_time`) / SUM(`deliveries`)"
+                    },
+                    {
+                      "name": "daily(sla_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `sla_date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "otp",
+                  "displayName": "On-time rate (30d)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(sla_date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "On-time rate, 30 days"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_missed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "missed",
+                      "expression": "SUM(`missed_day`)"
+                    },
+                    {
+                      "name": "daily(sla_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `sla_date`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "missed",
+                  "displayName": "Depot-days below SLA"
+                },
+                "period": {
+                  "fieldName": "daily(sla_date)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Depot-days below SLA target (30d)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_decisions",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`decision_type`)"
+                    },
+                    {
+                      "name": "daily(decided_at)",
+                      "expression": "DATE_TRUNC(\"DAY\", `decided_at`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Decisions"
+                },
+                "period": {
+                  "fieldName": "daily(decided_at)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Decisions synced from the app"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "sla_by_depot",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla_week",
+                  "fields": [
+                    {
+                      "name": "depot",
+                      "expression": "`depot`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "sla_target_pct",
+                      "expression": "`sla_target_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "depot",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Depot"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "on_time_pct",
+                      "displayName": "On-time %"
+                    },
+                    {
+                      "fieldName": "sla_target_pct",
+                      "displayName": "SLA target"
+                    }
+                  ],
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "mark": {
+                "layout": "group"
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SLA by depot, last 7 days (on-time vs target)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "otp_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "daily(sla_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `sla_date`)"
+                    },
+                    {
+                      "name": "otp",
+                      "expression": "SUM(`on_time`) / SUM(`deliveries`)"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(sla_date)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "otp",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "On-time %",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "On-time rate by region"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "late_causes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_late",
+                  "fields": [
+                    {
+                      "name": "cause_code",
+                      "expression": "`cause_code`"
+                    },
+                    {
+                      "name": "sum(late_deliveries)",
+                      "expression": "SUM(`late_deliveries`)"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "cause_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Cause"
+                },
+                "y": {
+                  "fieldName": "sum(late_deliveries)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Late deliveries"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Late deliveries by cause and region (30d)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "late_by_carrier",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_late",
+                  "fields": [
+                    {
+                      "name": "carrier",
+                      "expression": "`carrier`"
+                    },
+                    {
+                      "name": "sum(late_deliveries)",
+                      "expression": "SUM(`late_deliveries`)"
+                    },
+                    {
+                      "name": "cause_code",
+                      "expression": "`cause_code`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "carrier",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Carrier"
+                },
+                "x": {
+                  "fieldName": "sum(late_deliveries)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Late deliveries"
+                },
+                "color": {
+                  "fieldName": "cause_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Cause"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Late deliveries by carrier (30d)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "exceptions_by_type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_exceptions",
+                  "fields": [
+                    {
+                      "name": "exception_type",
+                      "expression": "`exception_type`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`exception_type`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "exception_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Exception type"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Exceptions"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Exceptions logged by type"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "decision_volume",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "daily(decided_at)",
+                      "expression": "DATE_TRUNC(\"HOUR\", `decided_at`)"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`decision`)"
+                    },
+                    {
+                      "name": "decision_type",
+                      "expression": "`decision_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(decided_at)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Hour"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Decisions"
+                },
+                "color": {
+                  "fieldName": "decision_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Decision volume by type"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 17,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sla_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla_week",
+                  "fields": [
+                    {
+                      "name": "depot",
+                      "expression": "`depot`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "sla_target_pct",
+                      "expression": "`sla_target_pct`"
+                    },
+                    {
+                      "name": "missed_days",
+                      "expression": "`missed_days`"
+                    },
+                    {
+                      "name": "deliveries",
+                      "expression": "`deliveries`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "depot",
+                    "displayName": "Depot"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "on_time_pct",
+                    "displayName": "On-time",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "sla_target_pct",
+                    "displayName": "Target",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "missed_days",
+                    "displayName": "Days missed"
+                  },
+                  {
+                    "fieldName": "deliveries",
+                    "displayName": "Deliveries"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Last week by depot"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layout": [
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "q_ds_sla",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds_sla_week",
+                "query": {
+                  "datasetName": "ds_sla_week",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds_late",
+                "query": {
+                  "datasetName": "ds_late",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "q_ds_sla"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "q_ds_sla_week"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "q_ds_late"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F8FAFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#0F172A",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#0072B2",
+        "#E69F00",
+        "#009E73",
+        "#CC79A7",
+        "#D55E00",
+        "#56B4E9",
+        "#F0E442"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

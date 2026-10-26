@@ -1,0 +1,71 @@
+resources:
+  apps:
+    dispatch_tower:
+      name: ${var.app_name}
+      description: Dispatch Control Tower - map, reassignments, exceptions, approvals, audit, Genie
+      source_code_path: ../app
+      config:
+        command: ["python", "-m", "dispatch_tower"]
+        env:
+          - name: PYTHONPATH
+            value: src
+          - name: DBX_CATALOG
+            value: ${var.catalog}
+          - name: DBX_SCHEMA
+            value: ${var.schema}
+          - name: DBX_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: GENIE_SPACE_ID
+            value_from: genie-space
+          - name: LAKEBASE_ENDPOINT
+            value: ${var.lakebase_endpoint}
+          - name: DISPATCH_LAKEBASE_BRANCH
+            value: ${var.lakebase_branch}
+          - name: DISPATCH_PG_SCHEMA
+            value: ${var.pg_schema}
+          # The deployer runs the jobs; the app grants that Postgres role access to its schema.
+          - name: DISPATCH_PG_OPERATOR_ROLE
+            value: ${workspace.current_user.userName}
+          - name: DISPATCH_ALLOW_ROLE_SWITCH
+            value: ${var.allow_role_switch}
+          - name: DISPATCH_ALLOW_SELF_APPROVAL
+            value: ${var.allow_self_approval}
+          - name: DISPATCH_ROLE_OVERRIDES
+            value: ${var.role_overrides}
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: ${var.lakebase_branch}
+            database: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: genie-space
+          genie_space:
+            name: Dispatch workshop Genie space
+            space_id: ${var.genie_space_id}
+            permission: CAN_RUN
+        # UC grants: the app service principal reads the gold tables (warehouse + Genie).
+        - name: depots
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.depots", permission: SELECT}
+        - name: carriers
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.carriers", permission: SELECT}
+        - name: vehicles
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.vehicles", permission: SELECT}
+        - name: routes
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.routes", permission: SELECT}
+        - name: stops
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.stops", permission: SELECT}
+        - name: route-paths
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.route_paths", permission: SELECT}
+        - name: delivery-history
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.delivery_history", permission: SELECT}
+        - name: depot-sla-daily
+          uc_securable: {securable_type: TABLE, securable_full_name: "${var.catalog}.${var.schema}.depot_sla_daily", permission: SELECT}
+      user_api_scopes:
+        - iam.current-user:read
+      permissions:
+        - group_name: users
+          level: CAN_USE

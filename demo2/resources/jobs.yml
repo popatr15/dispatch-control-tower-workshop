@@ -1,0 +1,54 @@
+# Both jobs run as the deployer (owner of the Lakebase project created by data/setup.sh).
+
+resources:
+  jobs:
+    sync_decisions:
+      name: dispatch-tower sync_decisions
+      description: Lakebase decisions (audit_log) -> UC decision_labels, with outcomes from gold stops
+      schedule:
+        quartz_cron_expression: "0 7 * * * ?"  # hourly; paused automatically in dev mode
+        timezone_id: UTC
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - psycopg[binary]>=3.2
+              - databricks-sdk>=0.81.0
+      tasks:
+        - task_key: sync_decisions
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/sync_decisions.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --schema=${var.schema}
+              - --lakebase-endpoint=${var.lakebase_endpoint}
+              - --lakebase-database=${var.lakebase_database}
+              - --pg-schema=${var.pg_schema}
+              - --app-src=${workspace.file_path}/app/src
+              - --readers=${var.label_readers}
+
+    seed_reset:
+      name: dispatch-tower seed_reset
+      description: Truncate app tables in Lakebase, seed route_state from today's routes, drop decision_labels
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - psycopg[binary]>=3.2
+              - databricks-sdk>=0.81.0
+      tasks:
+        - task_key: seed_reset
+          environment_key: default
+          spark_python_task:
+            python_file: ../jobs/seed_reset.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --schema=${var.schema}
+              - --lakebase-endpoint=${var.lakebase_endpoint}
+              - --lakebase-database=${var.lakebase_database}
+              - --pg-schema=${var.pg_schema}
+              - --app-src=${workspace.file_path}/app/src
+              - --clear-labels=true
