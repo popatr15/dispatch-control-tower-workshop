@@ -18,6 +18,7 @@ from workshop_data.deploy import (
     genie_title,
     owner_context,
     quote_ident,
+    resolve_verify_config,
     select_warehouse,
 )
 
@@ -181,8 +182,8 @@ def assert_genie_answers(profile: str, space_id: str) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify workshop data and Genie answers")
     parser.add_argument("--profile", required=True)
-    parser.add_argument("--catalog", default="workshop_dispatch")
-    parser.add_argument("--schema", default="gold")
+    parser.add_argument("--catalog")
+    parser.add_argument("--schema")
     parser.add_argument("--warehouse-id")
     parser.add_argument("--genie-space-id")
     return parser.parse_args()
@@ -190,13 +191,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    config = Config(
-        profile=args.profile,
-        catalog=args.catalog,
-        schema=args.schema,
-        warehouse_id=args.warehouse_id,
-        skip_lakebase=True,
-    )
+    config = resolve_verify_config(args)
     w = WorkspaceClient(profile=args.profile)
     owner = owner_context(w)
     warehouse_id = select_warehouse(w, args.warehouse_id)

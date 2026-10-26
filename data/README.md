@@ -2,6 +2,17 @@
 
 This folder creates the shared data space for the Dispatch Control Tower workshop. It creates the gold Delta tables, a curated Genie space, and, unless skipped, a Lakebase Postgres project with the demo1 and demo2 write-back tables.
 
+## Catalog and Schema Selection
+
+Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one. `--schema` behaves the same way and defaults to `workshop_dispatch` only at the interactive prompt; in non-interactive runs pass `--schema` or set `DBX_SCHEMA`.
+
+Examples:
+
+```bash
+data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
+DBX_CATALOG=<catalog> DBX_SCHEMA=workshop_dispatch data/setup.sh --profile <your-profile>
+```
+
 ## 5-Step Quick Start
 
 1. Install prerequisites: Databricks CLI 1.0.0 or newer, `uv` or Python 3.11+, and a SQL warehouse available. From the repo root, create or refresh a profile:
@@ -19,7 +30,7 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 3. Run the one-command setup with an explicit profile:
 
    ```bash
-   demo1/data/setup.sh --profile <your-profile>
+   data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
    ```
 
    Optional flags:
@@ -34,13 +45,13 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 4. Verify the deployment:
 
    ```bash
-   demo1/data/verify.sh --profile <your-profile>
+   data/verify.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
    ```
 
 5. Tear down workshop-created assets only when you are sure you no longer need them:
 
    ```bash
-   demo1/data/setup.sh --profile <your-profile> --teardown
+   data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch --teardown
    ```
 
 ## What Setup Prints
@@ -48,8 +59,8 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 At the end, setup prints the app environment values:
 
 ```bash
-export DBX_CATALOG=workshop_dispatch
-export DBX_SCHEMA=gold
+export DBX_CATALOG=<catalog>
+export DBX_SCHEMA=workshop_dispatch
 export DBX_WAREHOUSE_ID=<warehouse-id>
 export GENIE_SPACE_ID=<space-id>
 export LAKEBASE_PROJECT=projects/<project-id>
@@ -60,6 +71,7 @@ export PGHOST=<lakebase-host>
 export PGDATABASE=databricks_postgres
 export PGPORT=5432
 export PGSSLMODE=require
+Rendered PRP: <repo>/demo1/PRP.rendered.md
 ```
 
 ## Implementation Notes

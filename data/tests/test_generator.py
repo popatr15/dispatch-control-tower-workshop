@@ -153,7 +153,7 @@ def test_referential_integrity_and_carrier_spread() -> None:
 
 
 def test_contract_columns_match_docs() -> None:
-    contract_path = Path(__file__).parents[3] / "docs" / "DATA_CONTRACT.md"
+    contract_path = Path(__file__).parents[2] / "docs" / "DATA_CONTRACT.md"
     text = contract_path.read_text(encoding="utf-8")
     for table in TABLE_ORDER:
         match = re.search(rf"^\| {table} \| (?P<columns>.+?) \|$", text, re.MULTILINE)

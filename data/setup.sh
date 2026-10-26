@@ -5,25 +5,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: demo1/data/verify.sh --profile <databricks-cli-profile> [options]
+Usage: data/setup.sh --profile <databricks-cli-profile> [options]
 
 Required:
-  --profile <profile>          Databricks CLI profile. Required; never inferred.
+  --profile <profile>       Databricks CLI profile. Required; never inferred.
 
 Options:
-  --catalog <catalog>          Unity Catalog catalog (default: workshop_dispatch)
-  --schema <schema>            Unity Catalog schema (default: gold)
-  --warehouse-id <id>          SQL warehouse id. If omitted, verify picks a running/serverless warehouse.
-  --genie-space-id <space-id>  Genie space id. If omitted, verify reuses the workshop space by name.
-  -h, --help                   Show this help.
+  --catalog <catalog>       Unity Catalog catalog. May also use DBX_CATALOG.
+  --schema <schema>         Unity Catalog schema. May also use DBX_SCHEMA.
+  --warehouse-id <id>       SQL warehouse id. If omitted, setup picks a running/serverless warehouse.
+  --skip-lakebase           Skip Lakebase project/table creation.
+  --teardown                Remove workshop-created assets for this catalog/schema.
+  -h, --help                Show this help.
 USAGE
 }
 
 PROFILE=""
-CATALOG="workshop_dispatch"
-SCHEMA="gold"
+CATALOG="${DBX_CATALOG:-}"
+SCHEMA="${DBX_SCHEMA:-}"
 WAREHOUSE_ID=""
-GENIE_SPACE_ID=""
+SKIP_LAKEBASE=0
+TEARDOWN=0
 
 require_value() {
   local flag="$1"
@@ -56,10 +58,13 @@ while [[ $# -gt 0 ]]; do
       WAREHOUSE_ID="${2:-}"
       shift 2
       ;;
-    --genie-space-id)
-      require_value "$1" "${2:-}"
-      GENIE_SPACE_ID="${2:-}"
-      shift 2
+    --skip-lakebase)
+      SKIP_LAKEBASE=1
+      shift
+      ;;
+    --teardown)
+      TEARDOWN=1
+      shift
       ;;
     -h|--help)
       usage
@@ -78,19 +83,33 @@ if [[ -z "$PROFILE" ]]; then
   exit 2
 fi
 
+if ! command -v databricks >/dev/null 2>&1; then
+  echo "Error: databricks CLI is required on PATH." >&2
+  exit 1
+fi
+
 cd "$SCRIPT_DIR"
 export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
-ARGS=(--profile "$PROFILE" --catalog "$CATALOG" --schema "$SCHEMA")
+ARGS=(--profile "$PROFILE")
+if [[ -n "$CATALOG" ]]; then
+  ARGS+=(--catalog "$CATALOG")
+fi
+if [[ -n "$SCHEMA" ]]; then
+  ARGS+=(--schema "$SCHEMA")
+fi
 if [[ -n "$WAREHOUSE_ID" ]]; then
   ARGS+=(--warehouse-id "$WAREHOUSE_ID")
 fi
-if [[ -n "$GENIE_SPACE_ID" ]]; then
-  ARGS+=(--genie-space-id "$GENIE_SPACE_ID")
+if [[ "$SKIP_LAKEBASE" -eq 1 ]]; then
+  ARGS+=(--skip-lakebase)
+fi
+if [[ "$TEARDOWN" -eq 1 ]]; then
+  ARGS+=(--teardown)
 fi
 
 if command -v uv >/dev/null 2>&1; then
-  uv run python -m workshop_data.verify "${ARGS[@]}"
+  uv run python -m workshop_data.deploy "${ARGS[@]}"
 else
   python3 - <<'PY'
 try:
@@ -101,5 +120,5 @@ except Exception as exc:
         "or run this script with uv installed."
     ) from exc
 PY
-  python3 -m workshop_data.verify "${ARGS[@]}"
+  python3 -m workshop_data.deploy "${ARGS[@]}"
 fi

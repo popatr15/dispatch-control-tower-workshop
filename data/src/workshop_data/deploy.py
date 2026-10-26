@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -25,6 +26,10 @@ SAFE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 OWNER_PROPERTY = "dispatch_workshop.owner"
 CREATED_PROPERTY = "dispatch_workshop.created"
 STATE_DIR = Path(".setup-state")
+DEFAULT_SCHEMA = "workshop_dispatch"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PRP_TEMPLATE = REPO_ROOT / "demo1" / "PRP.md"
+PRP_RENDERED = REPO_ROOT / "demo1" / "PRP.rendered.md"
 
 
 @dataclass
@@ -98,6 +103,59 @@ def quote_ident(name: str) -> str:
 
 def table_name(config: Config, table: str) -> str:
     return f"{quote_ident(config.catalog)}.{quote_ident(config.schema)}.{quote_ident(table)}"
+
+
+def choose_catalog(w: WorkspaceClient) -> str:
+    catalogs = sorted(catalog.name for catalog in w.catalogs.list() if getattr(catalog, "catalog_type", "") != "DELTASHARING_CATALOG")
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "--catalog is required when setup is run non-interactively. "
+            "Pass --catalog or set DBX_CATALOG."
+        )
+    print("Available non-sharing catalogs:")
+    for index, catalog in enumerate(catalogs, start=1):
+        print(f"  {index}. {catalog}")
+    default = next((name for name in catalogs if "catalog" in name), catalogs[0] if catalogs else "")
+    prompt = f"Catalog [{default}]: " if default else "Catalog: "
+    selected = input(prompt).strip() or default
+    if not selected:
+        raise RuntimeError("No catalog selected.")
+    return selected
+
+
+def choose_schema() -> str:
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "--schema is required when setup is run non-interactively. "
+            "Pass --schema or set DBX_SCHEMA."
+        )
+    return input(f"Schema [{DEFAULT_SCHEMA}]: ").strip() or DEFAULT_SCHEMA
+
+
+def resolve_setup_config(args: argparse.Namespace, w: WorkspaceClient) -> Config:
+    catalog = args.catalog or os.environ.get("DBX_CATALOG") or choose_catalog(w)
+    schema = args.schema or os.environ.get("DBX_SCHEMA") or choose_schema()
+    return Config(
+        profile=args.profile,
+        catalog=catalog,
+        schema=schema,
+        warehouse_id=args.warehouse_id,
+        skip_lakebase=args.skip_lakebase,
+    )
+
+
+def resolve_verify_config(args: argparse.Namespace) -> Config:
+    catalog = args.catalog or os.environ.get("DBX_CATALOG")
+    schema = args.schema or os.environ.get("DBX_SCHEMA")
+    if not catalog or not schema:
+        raise RuntimeError("Verify requires --catalog/--schema or DBX_CATALOG/DBX_SCHEMA.")
+    return Config(
+        profile=args.profile,
+        catalog=catalog,
+        schema=schema,
+        warehouse_id=args.warehouse_id,
+        skip_lakebase=True,
+    )
 
 
 def run_cli(args: list[str], profile: str, *, input_text: str | None = None) -> str:
@@ -270,6 +328,31 @@ SELECT
   {projections}
 FROM read_files('{path}', format => 'json')
 """
+
+
+def render_prp(values: dict[str, str]) -> Path:
+    rendered = PRP_TEMPLATE.read_text(encoding="utf-8")
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", value)
+    if "{{" in rendered or "}}" in rendered:
+        missing = sorted(set(re.findall(r"\{\{([A-Z0-9_]+)\}\}", rendered)))
+        raise RuntimeError(f"PRP rendering left unreplaced placeholders: {missing}")
+    PRP_RENDERED.write_text(rendered, encoding="utf-8")
+    return PRP_RENDERED
+
+
+def prp_values(config: Config, warehouse_id: str, genie_space_id: str, lakebase_info: dict[str, str]) -> dict[str, str]:
+    skipped = lakebase_info.get("LAKEBASE_SKIPPED") == "true"
+    return {
+        "DBX_CATALOG": config.catalog,
+        "DBX_SCHEMA": config.schema,
+        "DBX_WAREHOUSE_ID": warehouse_id,
+        "GENIE_SPACE_ID": genie_space_id,
+        "LAKEBASE_PROJECT": "SKIPPED" if skipped else lakebase_info.get("LAKEBASE_PROJECT", ""),
+        "LAKEBASE_BRANCH": "SKIPPED" if skipped else lakebase_info.get("LAKEBASE_BRANCH", ""),
+        "LAKEBASE_ENDPOINT": "SKIPPED" if skipped else lakebase_info.get("LAKEBASE_ENDPOINT", ""),
+        "PGDATABASE": "SKIPPED" if skipped else lakebase_info.get("PGDATABASE", ""),
+    }
 
 
 def load_gold_tables(config: Config, w: WorkspaceClient, warehouse_id: str, volume_path: str, owner: OwnerContext) -> None:
@@ -572,8 +655,7 @@ def ensure_lakebase(config: Config, owner: OwnerContext, state: dict[str, Any]) 
     }
 
 
-def setup(config: Config) -> None:
-    w = WorkspaceClient(profile=config.profile)
+def setup(config: Config, w: WorkspaceClient) -> None:
     owner = owner_context(w)
     state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
@@ -588,6 +670,7 @@ def setup(config: Config) -> None:
 
     lakebase_info = {"LAKEBASE_SKIPPED": "true"} if config.skip_lakebase else ensure_lakebase(config, owner, state)
     genie_space_id = upsert_genie_space(config, warehouse_id, owner)
+    rendered_prp = render_prp(prp_values(config, warehouse_id, genie_space_id, lakebase_info))
     state.update(
         {
             "catalog": config.catalog,
@@ -609,10 +692,10 @@ def setup(config: Config) -> None:
     }
     for key, value in summary.items():
         print(f"export {key}={value}")
+    print(f"Rendered PRP: {rendered_prp}")
 
 
-def teardown(config: Config) -> None:
-    w = WorkspaceClient(profile=config.profile)
+def teardown(config: Config, w: WorkspaceClient) -> None:
     owner = owner_context(w)
     state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
@@ -643,8 +726,8 @@ def teardown(config: Config) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create or tear down workshop data assets")
     parser.add_argument("--profile", required=True)
-    parser.add_argument("--catalog", default="workshop_dispatch")
-    parser.add_argument("--schema", default="gold")
+    parser.add_argument("--catalog")
+    parser.add_argument("--schema")
     parser.add_argument("--warehouse-id")
     parser.add_argument("--skip-lakebase", action="store_true")
     parser.add_argument("--teardown", action="store_true")
@@ -655,17 +738,12 @@ def main(argv: list[str] | None = None) -> None:
     if shutil.which("databricks") is None:
         raise SystemExit("Databricks CLI is required but was not found on PATH.")
     args = parse_args(argv)
-    config = Config(
-        profile=args.profile,
-        catalog=args.catalog,
-        schema=args.schema,
-        warehouse_id=args.warehouse_id,
-        skip_lakebase=args.skip_lakebase,
-    )
+    w = WorkspaceClient(profile=args.profile)
+    config = resolve_setup_config(args, w)
     if args.teardown:
-        teardown(config)
+        teardown(config, w)
     else:
-        setup(config)
+        setup(config, w)
 
 
 if __name__ == "__main__":
