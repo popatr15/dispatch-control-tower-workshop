@@ -63,6 +63,8 @@ targets:
   dev:
     mode: development
     default: true
+    # WORKSHOP ONLY: any signed-in user can act as manager (X-Dispatch-Role) and a
+    # manager can approve their own request. Never copy these into another target.
     variables:
       allow_role_switch: "true"
       allow_self_approval: "true"
@@ -73,3 +75,6 @@ targets:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
       app_name: dispatch-tower-prod
+      # Pinned off explicitly (tests/test_bundle_config.py guards this).
+      allow_role_switch: "false"
+      allow_self_approval: "false"

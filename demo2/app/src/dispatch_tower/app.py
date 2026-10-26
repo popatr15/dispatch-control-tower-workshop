@@ -81,6 +81,25 @@ def build_context(settings: Settings, bus: EventBus) -> AppContext:
     )
 
 
+def warn_workshop_toggles(settings: Settings) -> list[str]:
+    """Log loudly when a workshop-only convenience is enabled; returns the enabled names."""
+    enabled = [
+        name
+        for name, on in (
+            ("DISPATCH_ALLOW_ROLE_SWITCH", settings.allow_role_switch),
+            ("DISPATCH_ALLOW_SELF_APPROVAL", settings.allow_self_approval),
+        )
+        if on
+    ]
+    if enabled:
+        log.warning(
+            "WORKSHOP MODE: %s enabled. Any signed-in user can claim the manager role "
+            "and/or approve their own requests. Do not run this configuration in production.",
+            ", ".join(enabled),
+        )
+    return enabled
+
+
 def create_app(ctx: AppContext | None = None, *, serve_static: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -96,6 +115,7 @@ def create_app(ctx: AppContext | None = None, *, serve_static: bool = True) -> F
         if listen:
             listen()
         app.state.ctx = context
+        warn_workshop_toggles(context.settings)
         log.info(
             "dispatch tower ready (store=%s, warehouse=%s)", context.store.kind, context.reader.kind
         )

@@ -4,11 +4,16 @@ Databricks Apps forwards the signed-in user's identity in request headers;
 `X-Forwarded-Access-Token` (on-behalf-of token) lets us read their groups.
 Role precedence: workshop role switch header (only when enabled) > configured
 per-user override > group membership > configured default.
+
+Trust model: these headers are only trustworthy because the Databricks Apps
+proxy strips client-supplied `X-Forwarded-*` headers and sets its own. Outside
+mock mode a request without them (i.e. one that bypassed the proxy) is refused.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -19,6 +24,12 @@ from ..config import Settings
 log = logging.getLogger(__name__)
 
 ROLES = ("dispatcher", "manager")
+# One principal: no list separators, whitespace, quotes or control characters.
+_USER = re.compile(r"^[^\s,;\"'<>\x00-\x1f\x7f]{1,320}$")
+
+
+class Unauthenticated(Exception):
+    """The request carries no (or a malformed) proxy-forwarded identity."""
 
 
 @dataclass(frozen=True)
@@ -73,7 +84,14 @@ def resolve_identity(
     role_header: str | None,
     groups: GroupLookup | None,
 ) -> Identity:
-    user = (email or username or "").strip() or settings.dev_user
+    forwarded = (email or username or "").strip()
+    if not forwarded:
+        if not settings.mock:
+            raise Unauthenticated("missing X-Forwarded-Email; is the app behind the Apps proxy?")
+        forwarded = settings.dev_user
+    if not _USER.fullmatch(forwarded):
+        raise Unauthenticated("malformed forwarded identity header")
+    user = forwarded
     if settings.allow_role_switch and role_header in ROLES:
         return Identity(user, role_header, "switch")
     override = settings.parsed_role_overrides().get(user.lower())

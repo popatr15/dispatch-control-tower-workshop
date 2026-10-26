@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from .config import Settings
 from .db.store import Store
 from .services.decisions import DecisionService
 from .services.events import EventBus
 from .services.genie import GenieClient
-from .services.identity import GroupLookup, Identity, resolve_identity
+from .services.identity import GroupLookup, Identity, Unauthenticated, resolve_identity
 from .services.warehouse import CachedReader
 
 
@@ -41,14 +41,17 @@ def get_identity(
     token: Annotated[str | None, Header(alias="X-Forwarded-Access-Token")] = None,
     role: Annotated[str | None, Header(alias="X-Dispatch-Role")] = None,
 ) -> Identity:
-    return resolve_identity(
-        ctx.settings,
-        email=email,
-        username=username,
-        token=token,
-        role_header=role,
-        groups=ctx.groups,
-    )
+    try:
+        return resolve_identity(
+            ctx.settings,
+            email=email,
+            username=username,
+            token=token,
+            role_header=role,
+            groups=ctx.groups,
+        )
+    except Unauthenticated as exc:
+        raise HTTPException(401, str(exc)) from exc
 
 
 Who = Annotated[Identity, Depends(get_identity)]

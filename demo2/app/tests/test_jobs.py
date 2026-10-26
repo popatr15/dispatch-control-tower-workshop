@@ -2,7 +2,13 @@
 
 import pytest
 
-from dispatch_tower.sync.jobs import ident, reset_statements, stop_ids_in, table_exists
+from dispatch_tower.sync.jobs import (
+    ident,
+    principal,
+    reset_statements,
+    stop_ids_in,
+    table_exists,
+)
 
 
 def test_ident_rejects_injection():
@@ -10,6 +16,27 @@ def test_ident_rejects_injection():
     for bad in ("x; DROP", "a-b", "", "1abc"):
         with pytest.raises(ValueError):
             ident(bad)
+
+
+def test_principal_allowlist():
+    assert principal("account users") == "`account users`"
+    assert principal("first.last+ops@example.com") == "`first.last+ops@example.com`"
+    assert principal("6f1c2d3e-0000-4b7a-9c1d-2e3f4a5b6c7d").startswith("`6f1c")
+    for bad in (
+        "",
+        "x` ; DROP TABLE t; --",
+        "evil`",
+        "a'b",
+        'a"b',
+        "a;b",
+        " leading",
+        "trailing ",
+        "ok\n",
+        "new\nline",
+        "x" * 300,
+    ):
+        with pytest.raises(ValueError):
+            principal(bad)
 
 
 def test_stop_ids_from_audit():

@@ -2,7 +2,12 @@
 
 import pytest
 
-from dispatch_tower.services.identity import GroupLookup, Identity, resolve_identity
+from dispatch_tower.services.identity import (
+    GroupLookup,
+    Identity,
+    Unauthenticated,
+    resolve_identity,
+)
 from dispatch_tower.services.rules import PERMISSIONS, Forbidden, require
 
 from .conftest import DISPATCHER, MANAGER, make_ctx, make_settings, open_stop
@@ -113,3 +118,45 @@ def test_default_role_validation():
     with pytest.raises(ValueError):
         make_settings(DISPATCH_DEFAULT_ROLE="admin")
     assert make_ctx().settings.default_role == "dispatcher"
+
+
+def test_identity_required_outside_mock_mode():
+    s = make_settings(DISPATCH_MOCK=False)
+    with pytest.raises(Unauthenticated):
+        resolve_identity(s, email=None, username=None, token=None, role_header=None, groups=None)
+    who = resolve_identity(
+        s, email="a@example.com", username=None, token=None, role_header=None, groups=None
+    )
+    assert who.user == "a@example.com"
+
+
+def test_malformed_forwarded_identity_rejected():
+    s = make_settings()
+    for bad in ("a@x.com, b@x.com", "a b", "a\x00b", 'a"b', "x" * 400):
+        with pytest.raises(Unauthenticated):
+            resolve_identity(s, email=bad, username=None, token=None, role_header=None, groups=None)
+
+
+def test_api_returns_401_without_proxy_identity():
+    from fastapi.testclient import TestClient
+
+    from dispatch_tower.app import create_app
+
+    app = create_app(make_ctx(make_settings(DISPATCH_MOCK=False)), serve_static=False)
+    client = TestClient(app)
+    assert client.get("/api/me").status_code == 401
+    assert client.get("/api/me", headers={"X-Forwarded-Email": "a@example.com"}).status_code == 200
+
+
+def test_workshop_toggles_log_warning(caplog):
+    from dispatch_tower.app import warn_workshop_toggles
+
+    off = make_settings(DISPATCH_ALLOW_ROLE_SWITCH=False, DISPATCH_ALLOW_SELF_APPROVAL=False)
+    with caplog.at_level("WARNING", logger="dispatch_tower"):
+        assert warn_workshop_toggles(off) == []
+    assert not caplog.records
+    on = make_settings(DISPATCH_ALLOW_ROLE_SWITCH=True, DISPATCH_ALLOW_SELF_APPROVAL=True)
+    with caplog.at_level("WARNING", logger="dispatch_tower"):
+        enabled = warn_workshop_toggles(on)
+    assert enabled == ["DISPATCH_ALLOW_ROLE_SWITCH", "DISPATCH_ALLOW_SELF_APPROVAL"]
+    assert "WORKSHOP MODE" in caplog.text

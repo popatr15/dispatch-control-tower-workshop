@@ -35,6 +35,7 @@ def main() -> None:
     from dispatch_tower.sync.jobs import (
         ident,
         lakebase_connection,
+        principal,
         read_audit,
         stop_ids_in,
         table_exists,
@@ -44,6 +45,7 @@ def main() -> None:
     spark = SparkSession.builder.getOrCreate()
     ws = WorkspaceClient()
     catalog, schema = ident(args.catalog), ident(args.schema)
+    readers = principal(args.readers) if args.readers else None
 
     with lakebase_connection(ws, args.lakebase_endpoint, args.lakebase_database) as conn:
         if not table_exists(conn, args.pg_schema, "audit_log"):
@@ -92,8 +94,8 @@ def main() -> None:
         "(dispatch tower app): label = decision + reason, feat_* = what the user saw, "
         "outcome_* = what happened. Training signal for the next routing model.'"
     )
-    if args.readers:
-        spark.sql(f"GRANT SELECT ON TABLE {target} TO `{args.readers}`")
+    if readers:
+        spark.sql(f"GRANT SELECT ON TABLE {target} TO {readers}")
     print(f"wrote {len(labels)} rows to {target}")
 
 

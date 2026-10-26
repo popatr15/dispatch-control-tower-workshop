@@ -81,7 +81,17 @@ Lakebase database on first start, so it never collides with the tables
 Optional variables: `app_name` (default `dispatch-tower`), `allow_role_switch`
 (`true` in dev), `allow_self_approval` (`true` in dev), `role_overrides`
 (`"user=manager,other=dispatcher"`, set at deploy time only), `label_readers`
-(UC principal granted SELECT on `decision_labels`, default `account users`).
+(UC principal granted SELECT on `decision_labels`, default `account users`;
+the job refuses any value outside letters, digits, spaces and `. _ @ + -`).
+
+> [!WARNING]
+> **The `dev` target is workshop-only and NOT secure.** It sets
+> `allow_role_switch=true` and `allow_self_approval=true`, so **any signed-in
+> user can act as a manager** (the role picker sends `X-Dispatch-Role: manager`)
+> and a manager can approve their own expedite request. The app logs a
+> `WORKSHOP MODE` warning at startup whenever either toggle is on. The `prod`
+> target pins both to `false` (guarded by `app/tests/test_bundle_config.py`);
+> deploy anything beyond a workshop with `-t prod` and real group membership.
 
 Targets: `dev` (development mode: resources prefixed per user, schedules paused)
 and `prod` (production mode, deployed under the deployer's workspace folder).
@@ -117,6 +127,16 @@ The actor on every write is the signed-in user from the Apps forwarded headers
 Only managers can approve or reject expedite requests. Requesters cannot decide
 their own request unless `allow_self_approval=true`.
 
+**Deployment note: identity trusts the Apps proxy.** The user comes from
+`X-Forwarded-Email` / `X-Forwarded-Preferred-Username` and groups from
+`X-Forwarded-Access-Token`. These are only trustworthy because the Databricks
+Apps proxy strips client-supplied `X-Forwarded-*` headers and sets its own. Do
+not expose the app port any other way (another proxy, port-forward, sidecar)
+without the same guarantee. As a cheap defence, outside mock mode a request
+with no forwarded identity gets `401` (no silent fallback to a default user),
+and a value that is not a single principal (commas, whitespace, quotes, control
+characters) is rejected.
+
 ## How the labeled data feeds the next routing model
 
 `decision_labels` has one row per decision:
@@ -135,6 +155,18 @@ The job copies through a Lakebase connection on an hourly schedule. An
 alternative is Lakebase Lakehouse Sync (CDC from Postgres into Delta, Beta),
 which streams the raw tables into UC; the same `build_decision_labels`
 transform can then run over those Delta tables.
+
+## Known limitations
+
+- **History heat layer plots at depots.** The "30-day late heat" layer reads
+  `delivery_history`, which has no latitude/longitude in the data contract. A
+  delivery takes its stop's coordinates when that stop is still in `stops`,
+  otherwise its depot's; with the shared data almost all history falls back to
+  the depot, so the heat effectively shows which depots run late, not where
+  along the routes. Live stops (today) use their own coordinates.
+- Every Genie question is written to `genie_messages` with a `genie.ask` audit
+  row in the same transaction; `sync_decisions` ignores that action (it is not a
+  routing decision).
 
 ## Local development (offline, no workspace)
 
@@ -159,7 +191,7 @@ After changing backend routes, regenerate the typed client:
 ```bash
 cd demo2/app && uv run ruff check . && uv run pytest -v
 cd ui && bun run tsc --noEmit && bun run lint && bun run build
-cd ../.. && databricks bundle validate -t dev --profile <your-profile>
+cd ../.. && databricks bundle validate -t dev --strict --profile <your-profile>
 ```
 
 The pytest suite covers the effective-route override, audit-in-transaction

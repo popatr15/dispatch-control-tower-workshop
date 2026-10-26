@@ -3,13 +3,15 @@
 import asyncio
 
 import pytest
+from fastapi.testclient import TestClient
 
+from dispatch_tower.app import create_app
 from dispatch_tower.db.memory import MemoryTx
 from dispatch_tower.db.postgres import PgTx, PostgresStore, TokenProvider
 from dispatch_tower.services.events import EventBus
 from dispatch_tower.services.identity import Identity
 
-from .conftest import TODAY, make_ctx, open_stop, other_route
+from .conftest import DISPATCHER, TODAY, make_ctx, open_stop, other_route
 
 WHO = Identity("dispatcher-a", "dispatcher", "test")
 MANAGER = Identity("manager-a", "manager", "test")
@@ -63,6 +65,28 @@ def test_every_write_path_rolls_back(ctx, monkeypatch):
     assert ctx.store.list_comments("stop", stop["stop_id"]) == []
     assert ctx.store.list_route_state() == []
     assert len(ctx.store.list_audit()) == 2
+
+
+def _ask_genie(ctx, question="Which routes are late?"):
+    client = TestClient(create_app(ctx, serve_static=False), raise_server_exceptions=False)
+    return client.post("/api/genie/ask", headers=DISPATCHER, json={"question": question})
+
+
+def test_genie_ask_writes_message_and_audit(ctx):
+    res = _ask_genie(ctx)
+    assert res.status_code == 200
+    [msg] = ctx.store.list_genie_messages(DISPATCHER["X-Forwarded-Email"])
+    [audit] = ctx.store.list_audit(action="genie.ask")
+    assert audit["actor"] == DISPATCHER["X-Forwarded-Email"]
+    assert audit["entity_type"] == "genie_message" and audit["entity_id"] == msg["message_id"]
+    assert audit["payload"]["conversation_id"] == msg["conversation_id"]
+
+
+def test_genie_ask_rolls_back_when_audit_fails(ctx, monkeypatch):
+    monkeypatch.setattr(MemoryTx, "insert_audit", _boom)
+    assert _ask_genie(ctx).status_code == 500
+    assert ctx.store.list_genie_messages(DISPATCHER["X-Forwarded-Email"]) == []
+    assert ctx.store.list_audit() == []
 
 
 def test_events_publish_only_after_commit(monkeypatch):
@@ -120,6 +144,17 @@ def test_postgres_commit_and_rollback(pg_store, monkeypatch):
     [audit] = pg_store.list_audit(action="stop.reassign")
     assert audit["payload"]["to_route_id"] == target  # JSONB round-trip
     assert audit["payload"]["features"]["route_date"] == TODAY.isoformat()
+
+
+def test_postgres_genie_ask_rolls_back(pg_store, monkeypatch):
+    ctx = make_ctx(store=pg_store)
+    monkeypatch.setattr(PgTx, "insert_audit", _boom)
+    assert _ask_genie(ctx).status_code == 500
+    assert pg_store.list_genie_messages(DISPATCHER["X-Forwarded-Email"]) == []
+    monkeypatch.undo()
+    assert _ask_genie(ctx).status_code == 200
+    assert len(pg_store.list_genie_messages(DISPATCHER["X-Forwarded-Email"])) == 1
+    assert [a["action"] for a in pg_store.list_audit()] == ["genie.ask"]
 
 
 def test_postgres_approval_flow_and_route_state(pg_store):

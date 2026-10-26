@@ -29,6 +29,14 @@ def ask(ctx: Ctx, who: Who, body: GenieAskIn):
             answer.text,
             answer.sql,
         )
+        tx.insert_audit(
+            who.user,
+            "genie.ask",
+            "genie_message",
+            answer.message_id,
+            {"conversation_id": answer.conversation_id, "genie_message_id": row["id"]},
+            None,
+        )
     return GenieAnswerOut(question=body.question, created_at=row["created_at"], **answer.__dict__)
 
 

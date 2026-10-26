@@ -16,10 +16,22 @@ from ..db.schema import DECISION_TABLES
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+# UC principals: user emails, group names (may contain spaces, e.g. "account users"),
+# service principal application ids. Anything else (backticks, quotes, `;`) is refused.
+_PRINCIPAL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@+\-]{0,254}$")
+
+
 def ident(name: str) -> str:
     if not _IDENT.match(name):
         raise ValueError(f"unsafe identifier: {name!r}")
     return name
+
+
+def principal(name: str) -> str:
+    """Return `name` as a backtick-quoted UC principal, or raise if it is not allowlisted."""
+    if not _PRINCIPAL.fullmatch(name) or name != name.strip():
+        raise ValueError(f"unsafe principal: {name!r}")
+    return f"`{name}`"
 
 
 @contextmanager
