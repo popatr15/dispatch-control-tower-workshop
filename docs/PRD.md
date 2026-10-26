@@ -115,7 +115,7 @@ All of demo1 plus:
 ## Assumptions (change at sign-off if wrong)
 
 1. US geography, ~8 depots in major metros including the Northeast.
-2. Catalog/schema `workshop_dispatch.gold` (catalog name configurable by the script).
+2. Catalog/schema the customer-chosen catalog and a per-user schema (catalog name configurable by the script).
 3. Both demos use apx (FastAPI + React + TypeScript, uv/bun). demo1 is built in Genie app builder from the PRP; demo2 is deployed via DAB.
 4. Scale: ~8 depots, ~60 vehicles, ~25 routes/day, ~2,500 stops/day, 30 days history.
 

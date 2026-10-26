@@ -3,7 +3,7 @@
 Single source of truth for table/column names. Synthetic data only. Deterministic (fixed seed).
 Dates are RELATIVE to the day the setup script runs: "today" always has data; history covers the prior 30 days.
 
-Default location: catalog `workshop_dispatch` (configurable), schema `gold`.
+Location: the customer chooses the catalog at deploy time (`--catalog` / `DBX_CATALOG`); schema defaults to a per-user `workshop_dispatch_<user>` (`--schema` / `DBX_SCHEMA`). Apps read both from env vars.
 
 ## Gold Delta tables (UC, read by SQL warehouse and Genie)
 
@@ -18,7 +18,7 @@ Default location: catalog `workshop_dispatch` (configurable), schema `gold`.
 | delivery_history | stop_id, delivery_date DATE, depot_id, carrier_id, region, promised_ts, actual_ts, on_time BOOLEAN, late_minutes INT, cause_code (traffic/weather/vehicle_down/customer_unavailable/address_issue/capacity/none), weather_flag BOOLEAN |
 | depot_sla_daily | depot_id, sla_date DATE, deliveries INT, on_time INT, on_time_pct DOUBLE, sla_target_pct DOUBLE, sla_met BOOLEAN |
 
-Units and time: `sla_target_pct` and `on_time_pct` are FRACTIONS in 0-1 (0.93 = 93%). All dates/timestamps are UTC; "today" = the warehouse's `current_date()`. Exactly 2 depots (a Northeast pair) miss SLA on most days last week; all other depots meet their target.
+Units and time: `sla_target_pct` and `on_time_pct` are FRACTIONS in 0-1 (0.93 = 93%). All dates/timestamps are UTC; "today" = the warehouse's `current_date()`. Exactly 2 depots (a Northeast pair) miss SLA on most days last week; other depots meet their target on nearly all days (at most an occasional single missed day).
 
 Scale: 8 depots (>=2 in Northeast), ~60 vehicles, 3+ carriers, ~25 routes/day, ~2,500 stops/day today, 30 days history. Seed storylines so Genie questions have real answers: 2 depots chronically miss SLA last week; late stops cluster on one carrier in the Northeast with weather/traffic causes. Today must contain a healthy mix of on_time / at_risk / late stops and at least 5 high-risk routes.
 
