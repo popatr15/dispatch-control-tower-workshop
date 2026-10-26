@@ -121,3 +121,12 @@ DDL = [
 
 def ddl_statements(schema: str) -> list[str]:
     return [stmt.format(schema=schema) for stmt in DDL]
+
+
+def operator_grants(schema: str) -> list[str]:
+    """Grants for the job operator role; `%s` is bound to the role name via sql.Identifier."""
+    return [
+        "GRANT USAGE ON SCHEMA {schema} TO {role}",
+        "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA {schema} TO {role}",
+        "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {schema} TO {role}",
+    ]

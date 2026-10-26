@@ -88,7 +88,10 @@ def create_app(ctx: AppContext | None = None, *, serve_static: bool = True) -> F
         opener = getattr(context.store, "open", None)
         if opener:
             opener()
-        context.store.init_schema()
+        if hasattr(context.store, "grant_operator"):
+            context.store.init_schema(context.settings.pg_operator_role)
+        else:
+            context.store.init_schema()
         listen = getattr(context.store, "start_listener", None)
         if listen:
             listen()

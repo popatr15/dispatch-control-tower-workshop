@@ -99,7 +99,8 @@ def pg_store(pg_conninfo):
     )
     store.open()
     store.init_schema()
-    store.init_schema()  # idempotent DDL
+    store.init_schema("tester")  # idempotent DDL; operator grants to an existing role
+    store.grant_operator("no_such_role")  # missing role is logged, not fatal
     yield store
     store.close()
 

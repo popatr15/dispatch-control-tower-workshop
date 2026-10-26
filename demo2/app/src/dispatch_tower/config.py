@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     lakebase_endpoint: str | None = Field(default=None, alias="LAKEBASE_ENDPOINT")
     lakebase_branch: str | None = Field(default=None, alias="DISPATCH_LAKEBASE_BRANCH")
     pg_schema: str = Field(default="dispatch", alias="DISPATCH_PG_SCHEMA")
+    # Postgres role (the bundle deployer) granted access to the app-owned schema so the
+    # sync_decisions and seed_reset jobs can read and reset it. Injected at deploy time.
+    pg_operator_role: str | None = Field(default=None, alias="DISPATCH_PG_OPERATOR_ROLE")
 
     # Identity and roles
     dev_user: str = Field(default="local-dispatcher", alias="DISPATCH_DEV_USER")

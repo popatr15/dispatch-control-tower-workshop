@@ -27,7 +27,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from ..services.events import EventBus
-from .schema import ddl_statements
+from .schema import ddl_statements, operator_grants
 from .store import NotFound, Row
 
 log = logging.getLogger(__name__)
@@ -248,10 +248,26 @@ class PostgresStore:
         self._stop.set()
         self._pool.close()
 
-    def init_schema(self) -> None:
+    def init_schema(self, operator_role: str | None = None) -> None:
         with self._pool.connection() as conn:
             for stmt in ddl_statements(self._schema):
                 conn.execute(stmt)
+        if operator_role:
+            self.grant_operator(operator_role)
+
+    def grant_operator(self, role: str) -> None:
+        from psycopg import sql
+
+        try:
+            with self._pool.connection() as conn:
+                for stmt in operator_grants(self._schema):
+                    conn.execute(
+                        sql.SQL(stmt).format(
+                            schema=sql.Identifier(self._schema), role=sql.Identifier(role)
+                        )
+                    )
+        except psycopg.Error as exc:  # role may not exist yet in this branch
+            log.warning("could not grant schema access to operator role: %s", exc)
 
     @contextmanager
     def transaction(self) -> Iterator[PgTx]:
