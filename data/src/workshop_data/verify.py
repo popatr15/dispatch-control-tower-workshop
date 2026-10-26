@@ -117,6 +117,15 @@ def assert_sql_story(config: Config, w: WorkspaceClient, warehouse_id: str) -> N
         raise AssertionError(f"Expected CAR_NEF as Northeast late-delivery cluster; got {top_ne_carrier}")
 
 
+def certified_sqls(config: Config) -> list[str]:
+    payload = build_genie_payload(config)
+    return [item["sql"][0] for item in payload["instructions"]["example_question_sqls"]]
+
+
+def normalize_rows(result_rows: list[list[Any]]) -> set[tuple[str, ...]]:
+    return {tuple("" if cell is None else str(cell) for cell in row) for row in result_rows}
+
+
 def run_cli_json(args: list[str], profile: str) -> Any:
     output = subprocess.run(
         ["databricks", *args, "--profile", profile, "-o", "json"],
@@ -169,13 +178,20 @@ def genie_result_rows(profile: str, space_id: str, message: dict[str, Any]) -> l
     raise AssertionError("Genie completed but did not return a query-result attachment.")
 
 
-def assert_genie_answers(profile: str, space_id: str) -> None:
-    expected_markers = [{"Boston", "Newark"}, {"Northeast Freight Express", "NEFX", "CAR_NEF"}]
-    for question, markers in zip(CANONICAL_QUESTIONS, expected_markers, strict=True):
+def assert_genie_answers(
+    config: Config, w: WorkspaceClient, warehouse_id: str, profile: str, space_id: str
+) -> None:
+    for question, certified_sql in zip(CANONICAL_QUESTIONS, certified_sqls(config), strict=True):
+        certified_rows = rows(execute_sql(w, warehouse_id, certified_sql))
+        if not certified_rows:
+            raise AssertionError(f"Certified SQL returned no rows for {question!r}")
         message = ask_genie(profile, space_id, question)
-        result_text = json.dumps(genie_result_rows(profile, space_id, message))
-        if not result_text or not any(marker in result_text for marker in markers):
-            raise AssertionError(f"Genie result rows for {question!r} did not include any of {markers}")
+        genie_rows = genie_result_rows(profile, space_id, message)
+        if normalize_rows(genie_rows) != normalize_rows(certified_rows):
+            raise AssertionError(
+                f"Genie rows for {question!r} did not match certified SQL rows. "
+                f"certified={certified_rows} genie={genie_rows}"
+            )
         print(f"Genie OK: {question}")
 
 
@@ -197,12 +213,10 @@ def main() -> None:
     warehouse_id = select_warehouse(w, args.warehouse_id)
     assert_sql_story(config, w, warehouse_id)
     print("SQL row-count and storyline assertions passed.")
-    # Build the payload in verification too; this catches certified SQL construction drift early.
-    build_genie_payload(config)
     space_id = args.genie_space_id or find_genie_space(args.profile, genie_title(config, owner), owner.parent_path)
     if not space_id:
         raise AssertionError("No Genie space id supplied and no reusable workshop space found.")
-    assert_genie_answers(args.profile, space_id)
+    assert_genie_answers(config, w, warehouse_id, args.profile, space_id)
     print("Verification complete.")
 
 

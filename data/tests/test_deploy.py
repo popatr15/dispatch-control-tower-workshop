@@ -3,7 +3,16 @@ from __future__ import annotations
 import pytest
 
 import workshop_data.deploy as deploy
-from workshop_data.deploy import Config, OwnerContext, lakebase_project_id, prp_values, quote_ident
+from workshop_data.contract import TABLE_ORDER
+from workshop_data.deploy import (
+    Config,
+    OwnerContext,
+    assert_all_tables_owned_or_absent,
+    lakebase_project_id,
+    prp_values,
+    quote_ident,
+    teardown,
+)
 
 
 def test_quote_ident_accepts_safe_names() -> None:
@@ -88,3 +97,55 @@ def test_prp_values_for_skip_lakebase() -> None:
     assert values["LAKEBASE_BRANCH"] == "SKIPPED"
     assert values["LAKEBASE_ENDPOINT"] == "SKIPPED"
     assert values["PGDATABASE"] == "SKIPPED"
+
+
+class _FakeCurrentUser:
+    def me(self):
+        return type("User", (), {"user_name": "owner@example.com"})()
+
+
+class _FakeWorkspace:
+    current_user = _FakeCurrentUser()
+
+
+def test_refuse_unowned_tables_before_replace(monkeypatch) -> None:
+    config = Config("unused", "cat", "schema", "wh", False)
+    owner = OwnerContext("owner@example.com", "owner-abcd", "owner-marker", "/tmp")
+
+    def fake_execute_sql(_w, _warehouse_id, sql):
+        if sql.startswith("DESCRIBE TABLE"):
+            return type("Response", (), {"result": type("Result", (), {"data_array": [["ok"]]})()})()
+        if sql.startswith("SHOW TBLPROPERTIES"):
+            return type("Response", (), {"result": type("Result", (), {"data_array": [[deploy.OWNER_PROPERTY, "other-marker"]]})()})()
+        raise AssertionError(sql)
+
+    monkeypatch.setattr(deploy, "execute_sql", fake_execute_sql)
+    with pytest.raises(RuntimeError, match="Refusing to replace"):
+        assert_all_tables_owned_or_absent(config, object(), "wh", owner)
+
+
+def test_teardown_checks_all_table_ownership_before_dropping(monkeypatch, tmp_path) -> None:
+    config = Config("unused", "cat", "schema", "wh", False)
+    events: list[str] = []
+
+    monkeypatch.setattr(deploy, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(deploy, "path_exists", lambda _config, _path: False)
+    monkeypatch.setattr(deploy, "find_genie_space", lambda *_args: None)
+
+    def fake_table_exists(_config, _w, _warehouse_id, _table):
+        return True
+
+    def fake_table_property(_config, _w, _warehouse_id, table, _prop):
+        events.append(f"check:{table}")
+        return "bad-marker" if table == TABLE_ORDER[1] else deploy.hashlib_text("owner@example.com")[:16]
+
+    def fake_execute_sql(_w, _warehouse_id, sql):
+        events.append(f"sql:{sql}")
+
+    monkeypatch.setattr(deploy, "table_exists", fake_table_exists)
+    monkeypatch.setattr(deploy, "table_property", fake_table_property)
+    monkeypatch.setattr(deploy, "execute_sql", fake_execute_sql)
+
+    with pytest.raises(RuntimeError, match="Refusing to drop unowned table"):
+        teardown(config, _FakeWorkspace())
+    assert not any(event.startswith("sql:DROP TABLE") for event in events)

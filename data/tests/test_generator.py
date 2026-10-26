@@ -12,7 +12,7 @@ from workshop_data.generate import generate
 
 FIXED_DAY = date(2026, 10, 26)
 MONTH_BOUNDARY_DAY = date(2026, 3, 1)
-GOLDEN_DIGEST = "41a0efa297dadffdfa1cf1e976ee59d59056470cc1f57f4c73eb38718727caf3"
+GOLDEN_DIGEST = "5ac543fa32d9fc1e7acb816f6fcfd94823617ace6393ddcaa3b47769fa99caff"
 
 
 def digest(data: dict[str, list[dict]]) -> str:
@@ -129,7 +129,7 @@ def test_allowed_values_and_stop_state_coherence() -> None:
     for stop in data["stops"]:
         if route_status[stop["route_id"]] == "planned":
             assert stop["actual_arrival_ts"] is None
-            assert stop["status"] not in {"delivered", "on_time"}
+            assert stop["status"] != "delivered"
         if stop["status"] != "delivered":
             assert stop["actual_arrival_ts"] is None
 

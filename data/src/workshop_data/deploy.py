@@ -51,8 +51,8 @@ class OwnerContext:
 
 def owner_context(w: WorkspaceClient) -> OwnerContext:
     user_name = w.current_user.me().user_name
-    user_slug = sanitize_resource_part(user_name.split("@")[0])[:24]
     marker = hashlib_text(user_name)[:16]
+    user_slug = f"{sanitize_resource_part(user_name.split('@')[0])[:18]}-{marker[:8]}"
     return OwnerContext(
         user_name=user_name,
         user_slug=user_slug,
@@ -70,6 +70,15 @@ def hashlib_text(value: str) -> str:
 def sanitize_resource_part(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9-]", "-", value.lower().replace("_", "-")).strip("-")
     return cleaned or "user"
+
+
+def sanitize_schema_part(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9_]", "_", value.lower().replace("-", "_")).strip("_")
+    return cleaned or "user"
+
+
+def default_schema(owner: OwnerContext) -> str:
+    return f"{DEFAULT_SCHEMA}_{sanitize_schema_part(owner.user_slug)}"
 
 
 def state_path(config: Config, owner: OwnerContext) -> Path:
@@ -123,18 +132,16 @@ def choose_catalog(w: WorkspaceClient) -> str:
     return selected
 
 
-def choose_schema() -> str:
+def choose_schema(default: str) -> str:
     if not sys.stdin.isatty():
-        raise RuntimeError(
-            "--schema is required when setup is run non-interactively. "
-            "Pass --schema or set DBX_SCHEMA."
-        )
-    return input(f"Schema [{DEFAULT_SCHEMA}]: ").strip() or DEFAULT_SCHEMA
+        return default
+    return input(f"Schema [{default}]: ").strip() or default
 
 
 def resolve_setup_config(args: argparse.Namespace, w: WorkspaceClient) -> Config:
+    owner = owner_context(w)
     catalog = args.catalog or os.environ.get("DBX_CATALOG") or choose_catalog(w)
-    schema = args.schema or os.environ.get("DBX_SCHEMA") or choose_schema()
+    schema = args.schema or os.environ.get("DBX_SCHEMA") or choose_schema(default_schema(owner))
     return Config(
         profile=args.profile,
         catalog=catalog,
@@ -272,12 +279,12 @@ def create_uc_objects(config: Config, w: WorkspaceClient, warehouse_id: str) -> 
         ) from exc
 
 
-def upload_generated_files(config: Config, source_dir: Path) -> str:
-    dbfs_path = f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl"
+def upload_generated_files(config: Config, source_dir: Path, owner: OwnerContext) -> str:
+    dbfs_path = f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl/{owner.marker}"
     run_cli(["fs", "rm", "-r", dbfs_path], config.profile) if path_exists(config, dbfs_path) else None
     run_cli(["fs", "mkdirs", dbfs_path], config.profile)
     run_cli(["fs", "cp", "-r", "--overwrite", str(source_dir), dbfs_path], config.profile)
-    return f"/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl"
+    return f"/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl/{owner.marker}"
 
 
 def path_exists(config: Config, dbfs_path: str) -> bool:
@@ -298,7 +305,7 @@ def table_exists(config: Config, w: WorkspaceClient, warehouse_id: str, table: s
 
 def table_property(config: Config, w: WorkspaceClient, warehouse_id: str, table: str, prop: str) -> str | None:
     response = execute_sql(w, warehouse_id, f"SHOW TBLPROPERTIES {table_name(config, table)} ('{prop}')")
-    result_rows = response.result.data_array or [] if response.result else []
+    result_rows = (response.result.data_array or []) if response.result else []
     if not result_rows:
         return None
     value = result_rows[0][-1]
@@ -314,6 +321,11 @@ def assert_table_owned_or_absent(config: Config, w: WorkspaceClient, warehouse_i
             f"Refusing to replace {config.catalog}.{config.schema}.{table}: table exists but is not "
             "tagged as created by this setup run/user."
         )
+
+
+def assert_all_tables_owned_or_absent(config: Config, w: WorkspaceClient, warehouse_id: str, owner: OwnerContext) -> None:
+    for table in TABLE_ORDER:
+        assert_table_owned_or_absent(config, w, warehouse_id, table, owner)
 
 
 def create_table_sql(config: Config, table: str, volume_path: str, owner: OwnerContext) -> str:
@@ -520,7 +532,7 @@ def find_genie_space(profile: str, title: str, parent_path: str | None = None) -
     for space in spaces:
         if space.get("title") != title:
             continue
-        if parent_path and space.get("parent_path") not in {None, parent_path}:
+        if parent_path and space.get("parent_path") != parent_path:
             continue
         if space.get("title") == title:
             return space.get("space_id") or space.get("id")
@@ -660,12 +672,13 @@ def setup(config: Config, w: WorkspaceClient) -> None:
     state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
     create_uc_objects(config, w, warehouse_id)
+    assert_all_tables_owned_or_absent(config, w, warehouse_id, owner)
     data = generate(utc_today())
     assert_schema(data)
     with tempfile.TemporaryDirectory(prefix="dispatch-workshop-") as tmp:
         out_dir = Path(tmp) / "gold"
         write_jsonl(data, out_dir)
-        volume_path = upload_generated_files(config, out_dir)
+        volume_path = upload_generated_files(config, out_dir, owner)
         load_gold_tables(config, w, warehouse_id, volume_path, owner)
 
     lakebase_info = {"LAKEBASE_SKIPPED": "true"} if config.skip_lakebase else ensure_lakebase(config, owner, state)
@@ -699,19 +712,23 @@ def teardown(config: Config, w: WorkspaceClient) -> None:
     owner = owner_context(w)
     state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
+    existing_tables = [table for table in TABLE_ORDER if table_exists(config, w, warehouse_id, table)]
+    for table in existing_tables:
+        marker = table_property(config, w, warehouse_id, table, OWNER_PROPERTY)
+        if marker != owner.marker:
+            raise RuntimeError(f"Refusing to drop unowned table {config.catalog}.{config.schema}.{table}")
     for table in reversed(TABLE_ORDER):
-        if table_exists(config, w, warehouse_id, table):
-            marker = table_property(config, w, warehouse_id, table, OWNER_PROPERTY)
-            if marker != owner.marker:
-                raise RuntimeError(f"Refusing to drop unowned table {config.catalog}.{config.schema}.{table}")
+        if table in existing_tables:
             execute_sql(w, warehouse_id, f"DROP TABLE IF EXISTS {table_name(config, table)}")
-    run_cli(
-        ["fs", "rm", "-r", f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl"],
-        config.profile,
-    )
+    staged_path = f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl/{owner.marker}"
+    if path_exists(config, staged_path):
+        run_cli(["fs", "rm", "-r", staged_path], config.profile)
     space_id = state.get("genie_space_id") or find_genie_space(config.profile, genie_title(config, owner), owner.parent_path)
     if space_id:
-        run_cli(["genie", "trash-space", space_id], config.profile)
+        try:
+            run_cli(["genie", "trash-space", space_id], config.profile)
+        except RuntimeError as exc:
+            print(f"Genie space trash skipped or failed: {exc}", file=sys.stderr)
     if not config.skip_lakebase and state.get("lakebase_created_by_setup"):
         project_name = state.get("lakebase_project")
         try:
@@ -720,6 +737,7 @@ def teardown(config: Config, w: WorkspaceClient) -> None:
             print(f"Lakebase project delete skipped or failed: {exc}", file=sys.stderr)
     elif not config.skip_lakebase:
         print("Lakebase project not deleted because this setup did not record creating it.")
+    state_path(config, owner).unlink(missing_ok=True)
     print("Teardown complete.")
 
 

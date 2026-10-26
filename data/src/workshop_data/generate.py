@@ -255,7 +255,7 @@ def make_stops_and_paths(
             promised_end = promised_start + timedelta(minutes=45)
             status, late_minutes, reason = stop_status(route, seq, route_size)
             if route["status"] == "planned":
-                status, late_minutes, reason = "at_risk", 0, "capacity" if route["risk_score"] >= 0.75 else None
+                status, late_minutes, reason = "on_time", 0, None
             elif status == "on_time" and seq <= route_size * 0.35:
                 status = "delivered"
             eta = promised_end + timedelta(minutes=late_minutes if status == "late" else -8)

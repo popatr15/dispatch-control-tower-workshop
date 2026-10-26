@@ -4,13 +4,14 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 
 ## Catalog and Schema Selection
 
-Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one. `--schema` behaves the same way and defaults to `workshop_dispatch` only at the interactive prompt; in non-interactive runs pass `--schema` or set `DBX_SCHEMA`.
+Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one. If `--schema`/`DBX_SCHEMA` is omitted, setup uses a per-user default like `workshop_dispatch_<user_slug>_<hash>` so multiple attendees do not collide.
 
 Examples:
 
 ```bash
 data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
 DBX_CATALOG=<catalog> DBX_SCHEMA=workshop_dispatch data/setup.sh --profile <your-profile>
+DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema default
 ```
 
 ## 5-Step Quick Start
@@ -79,6 +80,7 @@ Rendered PRP: <repo>/demo1/PRP.rendered.md
 - The generator is deterministic with a fixed seed and writes JSONL files locally.
 - Setup uploads those files to a managed UC volume named `workshop_seed`, then creates Delta tables with SQL warehouse `CREATE OR REPLACE TABLE ... TBLPROPERTIES (...) AS SELECT ... FROM read_files(...)`.
 - Setup refuses to overwrite contract-named tables that were not tagged by this script for the current user.
+- Staged JSONL files are written under a per-user path inside the `workshop_seed` volume.
 - Genie spaces and Lakebase projects are scoped by catalog, schema, and current user to avoid shared-workspace collisions.
 - Lakebase uses the current Autoscaling CLI surface documented in the Databricks Lakebase skill: `databricks postgres create-project/list-branches/list-endpoints/list-databases/get-endpoint` and `databricks psql` for idempotent Postgres DDL.
 - Genie uses the current CLI surface documented in the Genie Agents skill: `databricks genie list-spaces/create-space/update-space/start-conversation/get-message`.
@@ -107,6 +109,7 @@ For Lakebase, grant the app resource permission in the app configuration or UI s
 - `Could not create the catalog/schema/volume`: your profile lacks Unity Catalog create permissions. Ask an admin to create the catalog/schema or grant permissions, then rerun.
 - `No SQL warehouses found`: create a SQL warehouse or pass `--warehouse-id`.
 - `databricks-sdk is required`: install `uv` or run `python3 -m pip install databricks-sdk`.
+- `Refusing to replace ... table exists but is not tagged`: choose a different schema, run teardown for your own tagged setup, or ask the schema owner before manually removing pre-existing tables.
 - Lakebase DDL failure: confirm your CLI supports `databricks postgres` and `databricks psql`, and that Lakebase is enabled in the workspace.
 - Genie verification fails: rerun `verify.sh` after setup has completed; if the space was created manually, pass `--genie-space-id`.
 
