@@ -74,10 +74,15 @@ def stop_ids_in(audit: list[dict[str, Any]]) -> list[str]:
 
 
 def reset_statements(pg_schema: str) -> list[str]:
-    """TRUNCATE every decision table in one statement (restarts BIGSERIAL ids)."""
+    """TRUNCATE every decision table in one statement.
+
+    Omits RESTART IDENTITY: that requires owning the BIGSERIAL sequences, and the
+    job operator only has table TRUNCATE (sequences stay owned by the app SP).
+    Growing ids are fine for the workshop.
+    """
     s = ident(pg_schema)
     tables = ", ".join(f"{s}.{t}" for t in DECISION_TABLES)
-    return [f"TRUNCATE {tables} RESTART IDENTITY"]
+    return [f"TRUNCATE {tables}"]
 
 
 def table_exists(conn: Any, pg_schema: str, table: str) -> bool:

@@ -124,9 +124,15 @@ def ddl_statements(schema: str) -> list[str]:
 
 
 def operator_grants(schema: str) -> list[str]:
-    """Grants for the job operator role; `%s` is bound to the role name via sql.Identifier."""
+    """Grants for the job operator role; placeholders filled via sql.Identifier.
+
+    Also set default privileges so tables/sequences created later inherit the same
+    access (app SP remains owner; jobs only need DML + TRUNCATE, not ownership).
+    """
     return [
         "GRANT USAGE ON SCHEMA {schema} TO {role}",
         "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA {schema} TO {role}",
         "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {schema} TO {role}",
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO {role}",
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {role}",
     ]

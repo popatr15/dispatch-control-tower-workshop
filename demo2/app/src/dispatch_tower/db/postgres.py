@@ -249,25 +249,32 @@ class PostgresStore:
         self._pool.close()
 
     def init_schema(self, operator_role: str | None = None) -> None:
+        # CREATE SCHEMA IF NOT EXISTS is not atomic under concurrency; a racing
+        # peer can still raise UniqueViolation / DuplicateSchema. Treat those as ok.
         with self._pool.connection() as conn:
             for stmt in ddl_statements(self._schema):
-                conn.execute(stmt)
+                try:
+                    conn.execute(stmt)
+                except (psycopg.errors.DuplicateSchema, psycopg.errors.UniqueViolation):
+                    log.info("ddl already applied by a peer: %s", stmt.split("\n", 1)[0][:80])
+                except psycopg.errors.DuplicateTable:
+                    pass
         if operator_role:
             self.grant_operator(operator_role)
 
     def grant_operator(self, role: str) -> None:
         from psycopg import sql
 
-        try:
-            with self._pool.connection() as conn:
-                for stmt in operator_grants(self._schema):
+        with self._pool.connection() as conn:
+            for stmt in operator_grants(self._schema):
+                try:
                     conn.execute(
                         sql.SQL(stmt).format(
                             schema=sql.Identifier(self._schema), role=sql.Identifier(role)
                         )
                     )
-        except psycopg.Error as exc:  # role may not exist yet in this branch
-            log.warning("could not grant schema access to operator role: %s", exc)
+                except psycopg.Error as exc:  # role may not exist yet in this branch
+                    log.warning("could not grant schema access to operator role: %s", exc)
 
     @contextmanager
     def transaction(self) -> Iterator[PgTx]:
