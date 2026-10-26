@@ -4,5 +4,6 @@ node_modules/
 __pycache__/
 .databricks/
 .env
+demo1/PRP.rendered.md
 *.pem
 dist/

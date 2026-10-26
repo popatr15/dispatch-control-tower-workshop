@@ -1,6 +1,19 @@
 # PRP: Dispatch Control Tower (demo1, scoped-down, Genie app builder)
 
-> Paste this whole file into Genie app builder as the build prompt. Data already exists: run `demo1/data/setup.sh` first (see `demo1/data/README.md`). Table and column names are defined in `docs/DATA_CONTRACT.md` and must be used exactly.
+> Paste this whole file into Genie app builder as the build prompt. Data already exists: run `data/setup.sh` first (see `data/README.md`); demo1 and demo2 share this same data. The values below are placeholders; `data/setup.sh` writes a copy of this file with them filled in as `demo1/PRP.rendered.md` (gitignored). Paste the RENDERED copy into Genie Code. Table and column names are defined in `docs/DATA_CONTRACT.md` and must be used exactly.
+
+## Environment values (filled in by setup.sh)
+
+| Name | Value |
+|---|---|
+| DBX_CATALOG | `{{DBX_CATALOG}}` |
+| DBX_SCHEMA | `{{DBX_SCHEMA}}` |
+| DBX_WAREHOUSE_ID | `{{DBX_WAREHOUSE_ID}}` |
+| GENIE_SPACE_ID | `{{GENIE_SPACE_ID}}` |
+| Lakebase project / branch / endpoint | `{{LAKEBASE_PROJECT}}` / `{{LAKEBASE_BRANCH}}` / `{{LAKEBASE_ENDPOINT}}` |
+| Lakebase database | `{{PGDATABASE}}` |
+
+Tables are `{{DBX_CATALOG}}.{{DBX_SCHEMA}}.<table>` (names in `docs/DATA_CONTRACT.md`).
 
 ## 1. Goal & Why
 
@@ -22,7 +35,7 @@
 
 **Stack (do not deviate):** apx: FastAPI + Pydantic backend (Python, `uv`), React + TypeScript frontend (`bun`, shadcn/ui, TanStack Router/Query). Generated API client via Orval; every route has an `operation_id`. Map: MapLibre GL JS (or deck.gl over MapLibre) with a no-key open tile style. Databricks access via `databricks-sdk` only (`WorkspaceClient`), never raw HTTP. Lakebase via `psycopg` with OAuth token auth.
 
-**Data reads (SQL warehouse, via SDK statement execution):** `{catalog}.gold.stops`, `routes`, `depots`, `route_paths`, `carriers`, `vehicles`. Catalog/schema/warehouse come from env vars (`DBX_CATALOG`, `DBX_SCHEMA`, `DBX_WAREHOUSE_ID`) declared in `app.yaml`.
+**Data reads (SQL warehouse, via SDK statement execution):** `{{DBX_CATALOG}}.{{DBX_SCHEMA}}.stops`, `routes`, `depots`, `route_paths`, `carriers`, `vehicles`. Catalog/schema/warehouse come from env vars (`DBX_CATALOG`, `DBX_SCHEMA`, `DBX_WAREHOUSE_ID`) declared in `app.yaml`.
 
 **Data writes (Lakebase):** tables `stop_reassignments`, `exceptions` from the contract. Create them on startup if absent (idempotent DDL). Instance/database from env (`PGHOST`, `PGDATABASE`, etc. via app resource binding).
 
