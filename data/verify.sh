@@ -11,8 +11,8 @@ Required:
   --profile <profile>          Databricks CLI profile. Required; never inferred.
 
 Options:
-  --catalog <catalog>          Unity Catalog catalog (default: workshop_dispatch)
-  --schema <schema>            Unity Catalog schema (default: gold)
+  --catalog <catalog>          Unity Catalog catalog. May also use DBX_CATALOG.
+  --schema <schema>            Unity Catalog schema. May also use DBX_SCHEMA.
   --warehouse-id <id>          SQL warehouse id. If omitted, verify picks a running/serverless warehouse.
   --genie-space-id <space-id>  Genie space id. If omitted, verify reuses the workshop space by name.
   -h, --help                   Show this help.

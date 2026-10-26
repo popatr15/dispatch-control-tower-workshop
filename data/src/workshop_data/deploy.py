@@ -25,9 +25,10 @@ VOLUME_NAME = "workshop_seed"
 SAFE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 OWNER_PROPERTY = "dispatch_workshop.owner"
 CREATED_PROPERTY = "dispatch_workshop.created"
-STATE_DIR = Path(".setup-state")
-DEFAULT_SCHEMA = "workshop_dispatch"
+DATA_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = Path(__file__).resolve().parents[3]
+STATE_DIR = DATA_DIR / ".setup-state"
+DEFAULT_SCHEMA = "workshop_dispatch"
 PRP_TEMPLATE = REPO_ROOT / "demo1" / "PRP.md"
 PRP_RENDERED = REPO_ROOT / "demo1" / "PRP.rendered.md"
 
@@ -124,9 +125,7 @@ def choose_catalog(w: WorkspaceClient) -> str:
     print("Available non-sharing catalogs:")
     for index, catalog in enumerate(catalogs, start=1):
         print(f"  {index}. {catalog}")
-    default = next((name for name in catalogs if "catalog" in name), catalogs[0] if catalogs else "")
-    prompt = f"Catalog [{default}]: " if default else "Catalog: "
-    selected = input(prompt).strip() or default
+    selected = input("Catalog: ").strip()
     if not selected:
         raise RuntimeError("No catalog selected.")
     return selected
@@ -281,7 +280,8 @@ def create_uc_objects(config: Config, w: WorkspaceClient, warehouse_id: str) -> 
 
 def upload_generated_files(config: Config, source_dir: Path, owner: OwnerContext) -> str:
     dbfs_path = f"dbfs:/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl/{owner.marker}"
-    run_cli(["fs", "rm", "-r", dbfs_path], config.profile) if path_exists(config, dbfs_path) else None
+    if path_exists(config, dbfs_path):
+        run_cli(["fs", "rm", "-r", dbfs_path], config.profile)
     run_cli(["fs", "mkdirs", dbfs_path], config.profile)
     run_cli(["fs", "cp", "-r", "--overwrite", str(source_dir), dbfs_path], config.profile)
     return f"/Volumes/{config.catalog}/{config.schema}/{VOLUME_NAME}/gold_jsonl/{owner.marker}"
@@ -539,16 +539,28 @@ def find_genie_space(profile: str, title: str, parent_path: str | None = None) -
     return None
 
 
-def upsert_genie_space(config: Config, warehouse_id: str, owner: OwnerContext) -> str:
+def upsert_genie_space(
+    config: Config, warehouse_id: str, owner: OwnerContext, state: dict[str, Any]
+) -> str:
     serialized = json.dumps(build_genie_payload(config), separators=(",", ":"))
     title = genie_title(config, owner)
-    existing_id = find_genie_space(config.profile, title, owner.parent_path)
-    if existing_id:
-        run_cli(
-            ["genie", "update-space", existing_id, "--json", json.dumps({"serialized_space": serialized})],
-            config.profile,
-        )
-        return existing_id
+    update_json = json.dumps({"serialized_space": serialized})
+    candidates: list[str] = []
+    state_id = state.get("genie_space_id")
+    if isinstance(state_id, str) and state_id:
+        candidates.append(state_id)
+    listed_id = find_genie_space(config.profile, title, owner.parent_path)
+    if listed_id and listed_id not in candidates:
+        candidates.append(listed_id)
+    for existing_id in candidates:
+        try:
+            run_cli(
+                ["genie", "update-space", existing_id, "--json", update_json],
+                config.profile,
+            )
+            return existing_id
+        except RuntimeError:
+            continue
 
     run_cli(["workspace", "mkdirs", owner.parent_path], config.profile)
     created = run_cli_json(
@@ -682,18 +694,25 @@ def setup(config: Config, w: WorkspaceClient) -> None:
         load_gold_tables(config, w, warehouse_id, volume_path, owner)
 
     lakebase_info = {"LAKEBASE_SKIPPED": "true"} if config.skip_lakebase else ensure_lakebase(config, owner, state)
-    genie_space_id = upsert_genie_space(config, warehouse_id, owner)
-    rendered_prp = render_prp(prp_values(config, warehouse_id, genie_space_id, lakebase_info))
     state.update(
         {
             "catalog": config.catalog,
             "schema": config.schema,
             "owner_marker": owner.marker,
+        }
+    )
+    write_state(config, owner, state)
+
+    genie_space_id = upsert_genie_space(config, warehouse_id, owner, state)
+    state.update(
+        {
             "genie_space_id": genie_space_id,
             "genie_title": genie_title(config, owner),
         }
     )
     write_state(config, owner, state)
+
+    rendered_prp = render_prp(prp_values(config, warehouse_id, genie_space_id, lakebase_info))
 
     print("\nSetup complete. Configure the app with:")
     summary = {
@@ -706,6 +725,12 @@ def setup(config: Config, w: WorkspaceClient) -> None:
     for key, value in summary.items():
         print(f"export {key}={value}")
     print(f"Rendered PRP: {rendered_prp}")
+    print("\nVerify with:")
+    print(
+        f"  data/verify.sh --profile {config.profile} --catalog {config.catalog} "
+        f"--schema {config.schema}"
+    )
+    print(f"Or: export DBX_SCHEMA={config.schema}")
 
 
 def teardown(config: Config, w: WorkspaceClient) -> None:
@@ -729,15 +754,41 @@ def teardown(config: Config, w: WorkspaceClient) -> None:
             run_cli(["genie", "trash-space", space_id], config.profile)
         except RuntimeError as exc:
             print(f"Genie space trash skipped or failed: {exc}", file=sys.stderr)
-    if not config.skip_lakebase and state.get("lakebase_created_by_setup"):
+    keep_lakebase_state: dict[str, Any] = {}
+    if config.skip_lakebase:
+        if state.get("lakebase_created_by_setup") and state.get("lakebase_project"):
+            keep_lakebase_state = {
+                "lakebase_project": state["lakebase_project"],
+                "lakebase_created_by_setup": True,
+            }
+            print("Lakebase project left in place (--skip-lakebase); keeping local Lakebase state.")
+    elif state.get("lakebase_created_by_setup"):
         project_name = state.get("lakebase_project")
         try:
             run_cli(["postgres", "delete-project", project_name], config.profile)
         except RuntimeError as exc:
             print(f"Lakebase project delete skipped or failed: {exc}", file=sys.stderr)
-    elif not config.skip_lakebase:
+            if project_name:
+                keep_lakebase_state = {
+                    "lakebase_project": project_name,
+                    "lakebase_created_by_setup": True,
+                }
+    else:
         print("Lakebase project not deleted because this setup did not record creating it.")
-    state_path(config, owner).unlink(missing_ok=True)
+    path = state_path(config, owner)
+    if keep_lakebase_state:
+        write_state(
+            config,
+            owner,
+            {
+                "catalog": config.catalog,
+                "schema": config.schema,
+                "owner_marker": owner.marker,
+                **keep_lakebase_state,
+            },
+        )
+    else:
+        path.unlink(missing_ok=True)
     print("Teardown complete.")
 
 

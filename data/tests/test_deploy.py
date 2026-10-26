@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+
 import pytest
 
 import workshop_data.deploy as deploy
@@ -8,7 +11,9 @@ from workshop_data.deploy import (
     Config,
     OwnerContext,
     assert_all_tables_owned_or_absent,
+    default_schema,
     lakebase_project_id,
+    owner_context,
     prp_values,
     quote_ident,
     teardown,
@@ -99,6 +104,70 @@ def test_prp_values_for_skip_lakebase() -> None:
     assert values["PGDATABASE"] == "SKIPPED"
 
 
+def test_real_prp_placeholders_are_subset_of_prp_values_keys() -> None:
+    text = deploy.PRP_TEMPLATE.read_text(encoding="utf-8")
+    placeholders = set(re.findall(r"\{\{([A-Z0-9_]+)\}\}", text))
+    config = Config("unused", "cat", "schema", None, True)
+    keys = set(prp_values(config, "wh", "genie", {"LAKEBASE_SKIPPED": "true"}))
+    assert placeholders
+    assert placeholders <= keys
+
+
+def test_default_schema_includes_email_hash_and_avoids_domain_collisions() -> None:
+    class _User:
+        def __init__(self, name: str) -> None:
+            self.user_name = name
+
+    class _CurrentUser:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def me(self):
+            return _User(self._name)
+
+    class _Workspace:
+        def __init__(self, name: str) -> None:
+            self.current_user = _CurrentUser(name)
+
+    first = owner_context(_Workspace("same.user@alpha.example"))
+    second = owner_context(_Workspace("same.user@beta.example"))
+    first_schema = default_schema(first)
+    second_schema = default_schema(second)
+    assert first_schema.startswith("workshop_dispatch_")
+    assert first_schema != second_schema
+    assert first.marker[:8] in first_schema
+    assert second.marker[:8] in second_schema
+
+
+def test_state_dir_is_absolute_under_data() -> None:
+    assert deploy.STATE_DIR.is_absolute()
+    assert deploy.STATE_DIR == deploy.DATA_DIR / ".setup-state"
+
+
+def test_choose_catalog_has_no_prefilled_guess(monkeypatch) -> None:
+    catalogs = [
+        type("Catalog", (), {"name": "alpha_catalog", "catalog_type": "MANAGED_CATALOG"})(),
+        type("Catalog", (), {"name": "beta_other", "catalog_type": "MANAGED_CATALOG"})(),
+    ]
+
+    class _Catalogs:
+        def list(self):
+            return catalogs
+
+    workspace = type("Workspace", (), {"catalogs": _Catalogs()})()
+    prompts: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return "beta_other"
+
+    monkeypatch.setattr(deploy.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert deploy.choose_catalog(workspace) == "beta_other"
+    assert prompts == ["Catalog: "]
+    assert all("[" not in prompt for prompt in prompts)
+
+
 class _FakeCurrentUser:
     def me(self):
         return type("User", (), {"user_name": "owner@example.com"})()
@@ -149,3 +218,33 @@ def test_teardown_checks_all_table_ownership_before_dropping(monkeypatch, tmp_pa
     with pytest.raises(RuntimeError, match="Refusing to drop unowned table"):
         teardown(config, _FakeWorkspace())
     assert not any(event.startswith("sql:DROP TABLE") for event in events)
+
+
+def test_teardown_keeps_lakebase_state_when_skip_lakebase(monkeypatch, tmp_path) -> None:
+    config = Config("unused", "cat", "schema", "wh", True)
+    owner = OwnerContext("owner@example.com", "owner-abcd", deploy.hashlib_text("owner@example.com")[:16], "/tmp")
+    monkeypatch.setattr(deploy, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(deploy, "path_exists", lambda _config, _path: False)
+    monkeypatch.setattr(deploy, "find_genie_space", lambda *_args: None)
+    monkeypatch.setattr(deploy, "table_exists", lambda *_args: False)
+    monkeypatch.setattr(deploy, "select_warehouse", lambda *_args: "wh")
+    state = {
+        "catalog": "cat",
+        "schema": "schema",
+        "owner_marker": owner.marker,
+        "lakebase_project": "projects/demo-project",
+        "lakebase_created_by_setup": True,
+        "genie_space_id": "space-1",
+    }
+    deploy.write_state(config, owner, state)
+
+    def fake_run_cli(args, _profile, **_kwargs):
+        if args[:2] == ["genie", "trash-space"]:
+            return ""
+        raise AssertionError(f"unexpected CLI call: {args}")
+
+    monkeypatch.setattr(deploy, "run_cli", fake_run_cli)
+    teardown(config, _FakeWorkspace())
+    kept = json.loads(deploy.state_path(config, owner).read_text(encoding="utf-8"))
+    assert kept["lakebase_project"] == "projects/demo-project"
+    assert kept["lakebase_created_by_setup"] is True

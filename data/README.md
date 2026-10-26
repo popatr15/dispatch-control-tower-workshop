@@ -4,13 +4,12 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 
 ## Catalog and Schema Selection
 
-Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one. If `--schema`/`DBX_SCHEMA` is omitted, setup uses a per-user default like `workshop_dispatch_<user_slug>_<hash>` so multiple attendees do not collide.
+Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one (no pre-filled guess). If `--schema`/`DBX_SCHEMA` is omitted, setup uses a per-user default like `workshop_dispatch_<local_part>_<email_hash>` (a short hash of the full email, so same local-part users on different domains do not collide).
 
 Examples:
 
 ```bash
-data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
-DBX_CATALOG=<catalog> DBX_SCHEMA=workshop_dispatch data/setup.sh --profile <your-profile>
+data/setup.sh --profile <your-profile> --catalog <catalog>
 DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema default
 ```
 
@@ -28,40 +27,40 @@ DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema 
    databricks auth profiles
    ```
 
-3. Run the one-command setup with an explicit profile:
+3. Run the one-command setup with an explicit profile (omit `--schema` so each attendee gets their own default):
 
    ```bash
-   data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
+   data/setup.sh --profile <your-profile> --catalog <catalog>
    ```
 
    Optional flags:
 
    ```bash
-   --catalog workshop_dispatch
-   --schema gold
+   --catalog <catalog>
    --warehouse-id <warehouse-id>
    --skip-lakebase
    ```
 
-4. Verify the deployment:
+4. Verify the deployment. Setup prints the exact `data/verify.sh ...` command (and the `DBX_SCHEMA` value). Reuse that printed schema, or export it first:
 
    ```bash
-   data/verify.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch
+   export DBX_SCHEMA=<schema-printed-by-setup>
+   data/verify.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA"
    ```
 
-5. Tear down workshop-created assets only when you are sure you no longer need them:
+5. Tear down workshop-created assets only when you are sure you no longer need them (same catalog/schema as setup; omit `--schema` only if `DBX_SCHEMA` is already exported):
 
    ```bash
-   data/setup.sh --profile <your-profile> --catalog <catalog> --schema workshop_dispatch --teardown
+   data/setup.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA" --teardown
    ```
 
 ## What Setup Prints
 
-At the end, setup prints the app environment values:
+At the end, setup prints the app environment values and the exact verify command:
 
 ```bash
 export DBX_CATALOG=<catalog>
-export DBX_SCHEMA=workshop_dispatch
+export DBX_SCHEMA=workshop_dispatch_<local_part>_<email_hash>
 export DBX_WAREHOUSE_ID=<warehouse-id>
 export GENIE_SPACE_ID=<space-id>
 export LAKEBASE_PROJECT=projects/<project-id>
@@ -73,6 +72,9 @@ export PGDATABASE=databricks_postgres
 export PGPORT=5432
 export PGSSLMODE=require
 Rendered PRP: <repo>/demo1/PRP.rendered.md
+
+Verify with:
+  data/verify.sh --profile <your-profile> --catalog <catalog> --schema <printed-schema>
 ```
 
 ## Implementation Notes
@@ -109,7 +111,7 @@ For Lakebase, grant the app resource permission in the app configuration or UI s
 - `Could not create the catalog/schema/volume`: your profile lacks Unity Catalog create permissions. Ask an admin to create the catalog/schema or grant permissions, then rerun.
 - `No SQL warehouses found`: create a SQL warehouse or pass `--warehouse-id`.
 - `databricks-sdk is required`: install `uv` or run `python3 -m pip install databricks-sdk`.
-- `Refusing to replace ... table exists but is not tagged`: choose a different schema, run teardown for your own tagged setup, or ask the schema owner before manually removing pre-existing tables.
+- `Refusing to replace ... table exists but is not tagged`: choose a different schema, run teardown for your own tagged setup, or ask the schema owner before manually removing pre-existing tables. Prefer omitting `--schema` so setup uses your per-user default.
 - Lakebase DDL failure: confirm your CLI supports `databricks postgres` and `databricks psql`, and that Lakebase is enabled in the workspace.
 - Genie verification fails: rerun `verify.sh` after setup has completed; if the space was created manually, pass `--genie-space-id`.
 
