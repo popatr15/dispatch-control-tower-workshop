@@ -13,10 +13,13 @@ resources:
             value: ${var.catalog}
           - name: DBX_SCHEMA
             value: ${var.schema}
+          # Bundle config.env must use `value` (or camelCase valueFrom). Snake_case
+          # value_from is dropped before the Apps API and deploy fails with
+          # "Must specify environment variable source using either value or valueFrom".
           - name: DBX_WAREHOUSE_ID
-            value_from: sql-warehouse
+            value: ${var.warehouse_id}
           - name: GENIE_SPACE_ID
-            value_from: genie-space
+            value: ${var.genie_space_id}
           - name: LAKEBASE_ENDPOINT
             value: ${var.lakebase_endpoint}
           - name: DISPATCH_LAKEBASE_BRANCH
