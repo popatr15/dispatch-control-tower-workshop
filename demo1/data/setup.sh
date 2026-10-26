@@ -76,6 +76,7 @@ if ! command -v databricks >/dev/null 2>&1; then
 fi
 
 cd "$SCRIPT_DIR"
+export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(--profile "$PROFILE" --catalog "$CATALOG" --schema "$SCHEMA")
 if [[ -n "$WAREHOUSE_ID" ]]; then
@@ -91,7 +92,6 @@ fi
 if command -v uv >/dev/null 2>&1; then
   uv run python -m workshop_data.deploy "${ARGS[@]}"
 else
-  export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
   python3 - <<'PY'
 try:
     import databricks.sdk  # noqa: F401
