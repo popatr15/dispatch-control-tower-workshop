@@ -220,6 +220,109 @@ def test_teardown_checks_all_table_ownership_before_dropping(monkeypatch, tmp_pa
     assert not any(event.startswith("sql:DROP TABLE") for event in events)
 
 
+def test_upsert_genie_space_only_creates_on_not_found(monkeypatch) -> None:
+    config = Config("unused", "cat", "schema", "wh", True)
+    owner = OwnerContext("owner@example.com", "owner-abcd", "marker", "/Workspace/Users/owner@example.com/genie_spaces")
+    state = {"genie_space_id": "space-existing"}
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(deploy, "build_genie_payload", lambda _config: {"version": 2})
+    monkeypatch.setattr(deploy, "find_genie_space", lambda *_args: None)
+
+    def fake_run_cli(args, _profile, **_kwargs):
+        calls.append(args)
+        if args[:2] == ["genie", "update-space"]:
+            raise RuntimeError("Command failed: genie update-space\nPERMISSION_DENIED: not allowed")
+        raise AssertionError(f"unexpected CLI call: {args}")
+
+    monkeypatch.setattr(deploy, "run_cli", fake_run_cli)
+    with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
+        deploy.upsert_genie_space(config, "wh", owner, state)
+    assert len(calls) == 1
+    assert calls[0][:3] == ["genie", "update-space", "space-existing"]
+    assert not any(args[:2] == ["genie", "create-space"] for args in calls)
+
+
+def test_upsert_genie_space_creates_when_update_not_found(monkeypatch) -> None:
+    config = Config("unused", "cat", "schema", "wh", True)
+    owner = OwnerContext("owner@example.com", "owner-abcd", "marker", "/Workspace/Users/owner@example.com/genie_spaces")
+    state = {"genie_space_id": "space-missing"}
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(deploy, "build_genie_payload", lambda _config: {"version": 2})
+    monkeypatch.setattr(deploy, "find_genie_space", lambda *_args: None)
+
+    def fake_run_cli(args, _profile, **_kwargs):
+        calls.append(args)
+        if args[:2] == ["genie", "update-space"]:
+            raise RuntimeError("Command failed: genie update-space\nRESOURCE_DOES_NOT_EXIST: space not found")
+        if args[:2] == ["workspace", "mkdirs"]:
+            return ""
+        raise AssertionError(f"unexpected CLI call: {args}")
+
+    def fake_run_cli_json(args, _profile):
+        calls.append(args)
+        assert args[0] == "genie" and args[1] == "create-space"
+        return {"space_id": "space-new"}
+
+    monkeypatch.setattr(deploy, "run_cli", fake_run_cli)
+    monkeypatch.setattr(deploy, "run_cli_json", fake_run_cli_json)
+    assert deploy.upsert_genie_space(config, "wh", owner, state) == "space-new"
+    assert any(args[:2] == ["genie", "create-space"] for args in calls)
+
+
+def test_lakebase_records_created_flag_immediately_after_create_project(monkeypatch, tmp_path) -> None:
+    config = Config("unused", "cat", "schema", "wh", False)
+    owner = OwnerContext("owner@example.com", "owner-abcd", "marker", "/tmp")
+    monkeypatch.setattr(deploy, "STATE_DIR", tmp_path)
+    state: dict = {}
+    wrote: list[dict] = []
+
+    monkeypatch.setattr(
+        deploy,
+        "run_cli_json",
+        lambda args, _profile: (
+            {"projects": []}
+            if args[:2] == ["postgres", "list-projects"]
+            else {"status": {"hosts": {"host": "db.example"}, "postgres_database": "databricks_postgres"}}
+            if args[:2] == ["postgres", "get-endpoint"]
+            else {"branches": [{"name": "projects/p/branches/main"}]}
+            if args[:2] == ["postgres", "list-branches"]
+            else {"endpoints": [{"name": "projects/p/branches/main/endpoints/primary"}]}
+            if args[:2] == ["postgres", "list-endpoints"]
+            else {"databases": [{"name": "projects/p/branches/main/databases/main", "status": {"postgres_database": "databricks_postgres"}}]}
+        ),
+    )
+
+    def fake_run_cli(args, _profile, **_kwargs):
+        if args[:2] == ["postgres", "create-project"]:
+            return ""
+        raise AssertionError(args)
+
+    def fake_write_state(_config, _owner, payload):
+        wrote.append(dict(payload))
+
+    class _Completed:
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(deploy, "run_cli", fake_run_cli)
+    monkeypatch.setattr(deploy, "write_state", fake_write_state)
+    monkeypatch.setattr(deploy.subprocess, "run", lambda *_args, **_kwargs: _Completed())
+    monkeypatch.setattr(deploy, "wait_for_cli_items", lambda args, profile, key, label, attempts=30: (
+        [{"name": "projects/p/branches/main"}]
+        if key == "branches"
+        else [{"name": "projects/p/branches/main/endpoints/primary"}]
+        if key == "endpoints"
+        else [{"name": "projects/p/branches/main/databases/main", "status": {"postgres_database": "databricks_postgres"}}]
+    ))
+
+    deploy.ensure_lakebase(config, owner, state)
+    assert wrote, "expected write_state immediately after create-project"
+    assert wrote[0]["lakebase_created_by_setup"] is True
+    assert state["lakebase_created_by_setup"] is True
+
+
 def test_teardown_keeps_lakebase_state_when_skip_lakebase(monkeypatch, tmp_path) -> None:
     config = Config("unused", "cat", "schema", "wh", True)
     owner = OwnerContext("owner@example.com", "owner-abcd", deploy.hashlib_text("owner@example.com")[:16], "/tmp")

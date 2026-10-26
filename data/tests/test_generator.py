@@ -8,11 +8,18 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from workshop_data.contract import TABLE_COLUMNS, TABLE_ORDER
-from workshop_data.generate import generate
+from workshop_data.generate import (
+    DEPOT_ANCHORS,
+    LAND_POLYGONS,
+    generate,
+    haversine_km,
+    on_land,
+    within_catchment,
+)
 
 FIXED_DAY = date(2026, 10, 26)
 MONTH_BOUNDARY_DAY = date(2026, 3, 1)
-GOLDEN_DIGEST = "5ac543fa32d9fc1e7acb816f6fcfd94823617ace6393ddcaa3b47769fa99caff"
+GOLDEN_DIGEST = "b435f34abe9fb582c73e38e195c457d83deac41b33670e762ae37845bb7431eb"
 
 
 def digest(data: dict[str, list[dict]]) -> str:
@@ -160,3 +167,100 @@ def test_contract_columns_match_docs() -> None:
         assert match, table
         docs_columns = [part.split()[0] for part in match.group("columns").split(", ")]
         assert docs_columns == [column.name for column in TABLE_COLUMNS[table]]
+
+
+def test_stops_stay_on_land_inside_catchment_near_anchors() -> None:
+    data = generate(FIXED_DAY)
+    depots = {row["depot_id"]: row for row in data["depots"]}
+    assert set(DEPOT_ANCHORS) == set(depots)
+    assert set(LAND_POLYGONS) == set(depots)
+    for depot_id, anchors in DEPOT_ANCHORS.items():
+        assert 10 <= len(anchors) <= 15
+        for _city, _state, lat, lon in anchors:
+            assert on_land(depot_id, lat, lon), (depot_id, lat, lon)
+            assert within_catchment(depots[depot_id], lat, lon)
+
+    for stop in data["stops"]:
+        depot = depots[stop["depot_id"]]
+        assert on_land(stop["depot_id"], stop["lat"], stop["lon"]), stop["stop_id"]
+        assert within_catchment(depot, stop["lat"], stop["lon"]), stop["stop_id"]
+        nearest_anchor_km = min(
+            haversine_km(stop["lat"], stop["lon"], anchor[2], anchor[3])
+            for anchor in DEPOT_ANCHORS[stop["depot_id"]]
+        )
+        assert nearest_anchor_km <= 1.6, (stop["stop_id"], nearest_anchor_km)
+
+
+def test_routes_are_compact_with_short_noncrossing_hops() -> None:
+    data = generate(FIXED_DAY)
+    depots = {row["depot_id"]: row for row in data["depots"]}
+    stops_by_route: dict[str, list[dict]] = defaultdict(list)
+    for stop in data["stops"]:
+        stops_by_route[stop["route_id"]].append(stop)
+
+    mean_hops: list[float] = []
+    for route in data["routes"]:
+        ordered = sorted(stops_by_route[route["route_id"]], key=lambda row: row["sequence"])
+        depot = depots[route["depot_id"]]
+        hops = [
+            haversine_km(depot["lat"], depot["lon"], ordered[0]["lat"], ordered[0]["lon"]),
+            *[
+                haversine_km(
+                    ordered[index - 1]["lat"],
+                    ordered[index - 1]["lon"],
+                    ordered[index]["lat"],
+                    ordered[index]["lon"],
+                )
+                for index in range(1, len(ordered))
+            ],
+        ]
+        mean_hop = sum(hops) / len(hops)
+        mean_hops.append(mean_hop)
+        assert mean_hop < 3.5, (route["route_id"], mean_hop)
+        span = max(
+            haversine_km(a["lat"], a["lon"], b["lat"], b["lon"])
+            for a in ordered
+            for b in ordered
+        )
+        assert span <= 12.0, (route["route_id"], span)
+
+        path = sorted(
+            (row for row in data["route_paths"] if row["route_id"] == route["route_id"]),
+            key=lambda row: row["seq"],
+        )
+        assert path[0]["lat"] == depot["lat"] and path[0]["lon"] == depot["lon"]
+        assert len(path) == len(ordered) + 1
+        for index, stop in enumerate(ordered, start=1):
+            assert path[index]["lat"] == stop["lat"]
+            assert path[index]["lon"] == stop["lon"]
+
+    assert sum(mean_hops) / len(mean_hops) < 2.5
+
+    routes_by_depot: dict[str, list[str]] = defaultdict(list)
+    for route in data["routes"]:
+        routes_by_depot[route["depot_id"]].append(route["route_id"])
+
+    overlapping_pairs = 0
+    pair_count = 0
+    for route_ids in routes_by_depot.values():
+        for left_index, left_id in enumerate(route_ids):
+            left_stops = stops_by_route[left_id]
+            for right_id in route_ids[left_index + 1 :]:
+                pair_count += 1
+                right_stops = stops_by_route[right_id]
+                close = 0
+                for stop in left_stops:
+                    if any(
+                        haversine_km(stop["lat"], stop["lon"], other["lat"], other["lon"]) <= 1.5
+                        for other in right_stops
+                    ):
+                        close += 1
+                if close / len(left_stops) > 0.35:
+                    overlapping_pairs += 1
+    assert overlapping_pairs / pair_count <= 0.25
+
+
+def test_delivery_history_contract_has_no_coordinates() -> None:
+    history_columns = [column.name for column in TABLE_COLUMNS["delivery_history"]]
+    assert "lat" not in history_columns
+    assert "lon" not in history_columns

@@ -444,7 +444,7 @@ FROM last_week
 JOIN {config.catalog}.{config.schema}.depots ON depots.depot_id = last_week.depot_id
 LEFT JOIN late_traits ON late_traits.depot_id = last_week.depot_id
 LEFT JOIN {config.catalog}.{config.schema}.carriers ON carriers.carrier_id = late_traits.carrier_id
-WHERE last_week.missed_days > 0
+WHERE last_week.missed_days >= 4
 ORDER BY last_week.missed_days DESC, late_traits.late_stops DESC
 """.strip()
     q2_sql = f"""
@@ -559,8 +559,14 @@ def upsert_genie_space(
                 config.profile,
             )
             return existing_id
-        except RuntimeError:
-            continue
+        except RuntimeError as exc:
+            details = str(exc).lower()
+            not_found = any(
+                token in details
+                for token in ("not found", "does not exist", "404", "resource_does_not_exist")
+            )
+            if not not_found:
+                raise
 
     run_cli(["workspace", "mkdirs", owner.parent_path], config.profile)
     created = run_cli_json(
@@ -619,6 +625,9 @@ def ensure_lakebase(config: Config, owner: OwnerContext, state: dict[str, Any]) 
             config.profile,
         )
         created_project = True
+        state["lakebase_project"] = project_name
+        state["lakebase_created_by_setup"] = True
+        write_state(config, owner, state)
 
     branch = wait_for_cli_items(["postgres", "list-branches", project_name], config.profile, "branches", "branches")[0]
     branch_name = branch["name"]
@@ -664,6 +673,7 @@ def ensure_lakebase(config: Config, owner: OwnerContext, state: dict[str, Any]) 
         ) from exc
 
     if created_project:
+        # Recorded immediately after create-project; keep flags true after successful DDL.
         state["lakebase_project"] = project_name
         state["lakebase_created_by_setup"] = True
 
