@@ -1,0 +1,25 @@
+[project]
+name = "dispatch-workshop-data"
+version = "0.1.0"
+description = "Deterministic data setup assets for the Dispatch Control Tower workshop"
+requires-python = ">=3.11"
+dependencies = [
+  "databricks-sdk>=0.81.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 180
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
