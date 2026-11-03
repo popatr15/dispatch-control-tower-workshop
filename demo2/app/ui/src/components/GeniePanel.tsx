@@ -1,103 +1,98 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/inputs";
-import { useAskGenie, useListGenieHistory, useSendGenieFeedback, type GenieAnswerOut } from "@/lib/api";
-import { errorMessage } from "@/lib/utils";
+import { useAskGenie, useSendGenieFeedback, type GenieAnswerOut } from "@/lib/api";
+import { cn, errorMessage } from "@/lib/utils";
 
-const SAMPLES = [
-  "Which depots missed SLA most last week, and what do the late stops have in common?",
-  "Show late deliveries in the Northeast by carrier.",
+// The two canonical questions from the PRD; both are answered by the seeded gold tables.
+const QUESTIONS = [
+  { label: "Which depots missed SLA most last week?", ask: "Which depots missed SLA most last week, and what do the late stops have in common?" },
+  { label: "Late deliveries in the Northeast, by carrier", ask: "Show late deliveries in the Northeast by carrier." },
 ];
 
+/** Step 2: ask Genie why. Two canned questions, the answer, and the SQL behind it. */
 export function GeniePanel() {
-  const qc = useQueryClient();
-  const [conversationId, setConversationId] = useState<string>();
-  const [question, setQuestion] = useState("");
-  const [answers, setAnswers] = useState<GenieAnswerOut[]>([]);
+  const [answers, setAnswers] = useState<Record<string, GenieAnswerOut>>({});
+  const [active, setActive] = useState<string>();
   const [rated, setRated] = useState<Record<string, string>>({});
-  const history = useListGenieHistory({}, { query: { enabled: answers.length === 0 } });
   const ask = useAskGenie({
-    mutation: {
-      onSuccess: (r) => {
-        setConversationId(r.data.conversation_id);
-        setAnswers((a) => [...a, r.data]);
-        setQuestion("");
-        qc.invalidateQueries({ queryKey: ["/api/genie/history"] });
-      },
-      onError: (e) => toast.error(errorMessage(e)),
-    },
+    mutation: { onError: (e) => toast.error(errorMessage(e)) },
   });
   const feedback = useSendGenieFeedback({ mutation: { onError: (e) => toast.error(errorMessage(e)) } });
 
-  const send = (q: string) => ask.mutate({ data: { question: q, conversation_id: conversationId ?? null } });
-  const past = (history.data?.data ?? []).slice(-6);
+  const send = (q: (typeof QUESTIONS)[number]) => {
+    setActive(q.ask);
+    if (answers[q.ask]) return;
+    ask.mutate(
+      { data: { question: q.ask, conversation_id: null } },
+      { onSuccess: (r) => setAnswers((a) => ({ ...a, [q.ask]: r.data })) },
+    );
+  };
+  const answer = active ? answers[active] : undefined;
 
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Ask why. Answers come from Genie over the gold tables; the SQL is shown.</p>
-        {conversationId && <Button size="sm" variant="ghost" onClick={() => { setConversationId(undefined); setAnswers([]); }}>New chat</Button>}
+    <div className="space-y-3 p-3">
+      <p className="text-sm text-muted-foreground">Genie reads the gold tables. Ask it what the late stops have in common.</p>
+      <div className="space-y-2">
+        {QUESTIONS.map((q) => (
+          <button
+            key={q.ask}
+            type="button"
+            disabled={ask.isPending}
+            onClick={() => send(q)}
+            className={cn(
+              "w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60",
+              active === q.ask ? "border-accent bg-accent/5" : "border-border bg-white",
+            )}
+          >
+            {q.label}
+          </button>
+        ))}
       </div>
-      {answers.length === 0 && (
-        <div className="space-y-1.5">
-          {SAMPLES.map((q) => (
-            <button key={q} type="button" className="w-full rounded-md border border-border px-2 py-1.5 text-left text-xs hover:bg-muted" onClick={() => send(q)} disabled={ask.isPending}>{q}</button>
-          ))}
-          {past.length > 0 && (
-            <div className="pt-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your recent questions</h4>
-              <ul className="mt-1 space-y-1 text-xs">
-                {past.map((m) => (
-                  <li key={m.message_id}>
-                    <button type="button" className="text-left text-accent underline" onClick={() => setConversationId(m.conversation_id)}>{m.question}</button>
-                  </li>
-                ))}
-              </ul>
+      {ask.isPending && <p role="status" className="text-sm text-muted-foreground">Genie is thinking…</p>}
+      {answer && active && !ask.isPending && (
+        <section aria-label="Genie answer" className="space-y-2 rounded-md border border-border bg-white p-3 text-sm">
+          {answer.text && <p className="whitespace-pre-wrap">{answer.text}</p>}
+          {answer.columns && answer.columns.length > 0 && (
+            <div className="max-h-56 overflow-auto rounded border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted"><tr>{answer.columns.map((c) => <th key={c} className="px-2 py-1 text-left font-medium">{c}</th>)}</tr></thead>
+                <tbody>
+                  {(answer.rows ?? []).map((row, i) => (
+                    <tr key={i} className="border-t border-border">
+                      {(row as unknown[]).map((v, j) => <td key={j} className="px-2 py-1 tabular-nums">{v == null ? "" : String(v)}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
+          {answer.sql && (
+            <details>
+              <summary className="cursor-pointer text-xs text-muted-foreground">Show the SQL Genie wrote</summary>
+              <pre className="mt-1 overflow-x-auto rounded bg-muted p-2 text-[11px]">{answer.sql}</pre>
+            </details>
+          )}
+          <div className="flex items-center gap-1">
+            {(["positive", "negative"] as const).map((rating) => (
+              <Button
+                key={rating}
+                size="icon"
+                variant={rated[answer.message_id] === rating ? "default" : "ghost"}
+                aria-label={rating === "positive" ? "Helpful" : "Not helpful"}
+                disabled={!!rated[answer.message_id] || feedback.isPending}
+                onClick={() => feedback.mutate(
+                  { data: { conversation_id: answer.conversation_id, message_id: answer.message_id, rating } },
+                  { onSuccess: () => setRated((r) => ({ ...r, [answer.message_id]: rating })) },
+                )}
+              >
+                {rating === "positive" ? <ThumbsUp className="h-3.5 w-3.5" /> : <ThumbsDown className="h-3.5 w-3.5" />}
+              </Button>
+            ))}
+          </div>
+        </section>
       )}
-      <ol className="space-y-3">
-        {answers.map((a) => (
-          <li key={a.message_id} className="space-y-1.5 rounded-md border border-border p-2 text-xs">
-            <p className="font-medium">{a.question}</p>
-            {a.text && <p className="whitespace-pre-wrap">{a.text}</p>}
-            {a.sql && (
-              <details>
-                <summary className="cursor-pointer text-muted-foreground">Generated SQL</summary>
-                <pre className="mt-1 overflow-x-auto rounded bg-muted p-2 text-[11px]">{a.sql}</pre>
-              </details>
-            )}
-            {a.columns && a.columns.length > 0 && (
-              <div className="max-h-56 overflow-auto rounded border border-border">
-                <table className="w-full text-[11px]">
-                  <thead className="bg-muted"><tr>{a.columns.map((c) => <th key={c} className="px-1.5 py-1 text-left font-medium">{c}</th>)}</tr></thead>
-                  <tbody>{(a.rows ?? []).map((row, i) => <tr key={i} className="border-t border-border">{(row as unknown[]).map((v, j) => <td key={j} className="px-1.5 py-0.5">{v == null ? "" : String(v)}</td>)}</tr>)}</tbody>
-                </table>
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              {(["positive", "negative"] as const).map((rating) => (
-                <Button key={rating} size="icon" variant={rated[a.message_id] === rating ? "default" : "ghost"} aria-label={rating === "positive" ? "Helpful" : "Not helpful"}
-                  disabled={!!rated[a.message_id] || feedback.isPending}
-                  onClick={() => feedback.mutate({ data: { conversation_id: a.conversation_id, message_id: a.message_id, rating } }, { onSuccess: () => setRated((r) => ({ ...r, [a.message_id]: rating })) })}>
-                  {rating === "positive" ? <ThumbsUp className="h-3.5 w-3.5" /> : <ThumbsDown className="h-3.5 w-3.5" />}
-                </Button>
-              ))}
-              {(a.suggested_questions ?? []).slice(0, 2).map((q) => (
-                <button key={q} type="button" className="ml-1 truncate rounded-full border border-border px-2 py-0.5 hover:bg-muted" onClick={() => send(q)}>{q}</button>
-              ))}
-            </div>
-          </li>
-        ))}
-      </ol>
-      <form className="mt-auto flex gap-2" onSubmit={(e) => { e.preventDefault(); if (question.trim().length >= 3) send(question); }}>
-        <Textarea aria-label="Ask Genie" rows={2} placeholder={conversationId ? "Ask a follow-up…" : "Ask a question about deliveries…"} value={question} onChange={(e) => setQuestion(e.target.value)} />
-        <Button type="submit" disabled={ask.isPending || question.trim().length < 3}>{ask.isPending ? "Thinking…" : "Ask"}</Button>
-      </form>
     </div>
   );
 }

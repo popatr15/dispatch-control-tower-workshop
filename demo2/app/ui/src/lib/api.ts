@@ -295,12 +295,22 @@ export interface HeatCellOut {
   on_time_pct: number;
 }
 
+export type HubOutHealth = typeof HubOutHealth[keyof typeof HubOutHealth];
+
+
+export const HubOutHealth = {
+  red: 'red',
+  amber: 'amber',
+  green: 'green',
+} as const;
+
 export interface HubOut {
   at_risk_routes: number;
   at_risk_stops: number;
   catchment_radius_km: number;
   city: string;
   depot_id: string;
+  health?: HubOutHealth;
   lat: number;
   late_stops: number;
   lon: number;
@@ -311,6 +321,25 @@ export interface HubOut {
   sla_target_pct: number;
   state: string;
   stops: number;
+}
+
+export interface ImpactOut {
+  hub_id: string;
+  hub_name?: string | null;
+  hub_on_time_after?: number | null;
+  hub_on_time_before?: number | null;
+  meets_sla_after?: boolean | null;
+  meets_sla_before?: boolean | null;
+  moved_stops: number;
+  projected_on_time: number;
+  route_at_risk_after: number;
+  route_at_risk_before: number;
+  route_id: string;
+  route_late_after: number;
+  route_late_before: number;
+  route_risk_after: number;
+  route_risk_before: number;
+  sla_target_pct?: number | null;
 }
 
 export type MeOutRole = typeof MeOutRole[keyof typeof MeOutRole];
@@ -621,6 +650,10 @@ region?: string | null;
 };
 
 export type GetRouteParams = {
+day?: string | null;
+};
+
+export type GetRouteImpactParams = {
 day?: string | null;
 };
 
@@ -3771,6 +3804,181 @@ export function useGetRouteSuspense<TData = Awaited<ReturnType<typeof getRoute>>
  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetRouteSuspenseQueryOptions(routeId,params,options)
+
+  const query = useSuspenseQuery(queryOptions, queryClient) as  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+/**
+ * Before/after of the reassignments applied so far (heuristic projection).
+ * @summary Route Impact
+ */
+export const getRouteImpact = (
+    routeId: string,
+    params?: GetRouteImpactParams, options?: AxiosRequestConfig
+ ): Promise<AxiosResponse<ImpactOut>> => {
+
+
+    return axios.get(
+      `/api/routes/${routeId}/impact`,{
+    ...options,
+        params: {...params, ...options?.params},}
+    );
+  }
+
+export const getGetRouteImpactUrl = (routeId: string,
+    params?: GetRouteImpactParams,) => {
+
+  return axios.create({
+    baseURL: '',
+    params: null,
+  }).getUri({
+    url: `/api/routes/${routeId}/impact`,
+    baseURL: '',
+    params,
+
+  });
+}
+
+
+
+
+export const getGetRouteImpactQueryKey = (routeId: string,
+    params?: GetRouteImpactParams,) => {
+    return [
+    `/api/routes/${routeId}/impact`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRouteImpactQueryOptions = <TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRouteImpactQueryKey(routeId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouteImpact>>> = ({ signal }) => getRouteImpact(routeId,params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: routeId !== null && routeId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRouteImpactQueryResult = NonNullable<Awaited<ReturnType<typeof getRouteImpact>>>
+export type GetRouteImpactQueryError = AxiosError<HTTPValidationError>
+
+
+export function useGetRouteImpact<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params: undefined |  GetRouteImpactParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRouteImpact>>,
+          TError,
+          Awaited<ReturnType<typeof getRouteImpact>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteImpact<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRouteImpact>>,
+          TError,
+          Awaited<ReturnType<typeof getRouteImpact>>
+        > , 'initialData'
+      >, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteImpact<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Route Impact
+ */
+
+export function useGetRouteImpact<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRouteImpactQueryOptions(routeId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getGetRouteImpactSuspenseQueryOptions = <TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+) => {
+
+const {query: queryOptions, axios: axiosOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRouteImpactQueryKey(routeId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRouteImpact>>> = ({ signal }) => getRouteImpact(routeId,params, { signal, ...axiosOptions });
+
+
+
+
+
+   return  queryOptionsBuilder({ queryKey, ...queryOptions, queryFn: queryOptions?.queryFn ?? queryFn}) as UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> } & { throwOnError?: ((this: never, error: TError) => boolean) & { readonly __inferenceOnly: never } }
+}
+
+export type GetRouteImpactSuspenseQueryResult = NonNullable<Awaited<ReturnType<typeof getRouteImpact>>>
+export type GetRouteImpactSuspenseQueryError = AxiosError<HTTPValidationError>
+
+
+export function useGetRouteImpactSuspense<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params: undefined |  GetRouteImpactParams, options: { query:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteImpactSuspense<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRouteImpactSuspense<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+  ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Route Impact
+ */
+
+export function useGetRouteImpactSuspense<TData = Awaited<ReturnType<typeof getRouteImpact>>, TError = AxiosError<HTTPValidationError>>(
+ routeId: string,
+    params?: GetRouteImpactParams, options?: { query?:Partial<UseSuspenseQueryOptions<Awaited<ReturnType<typeof getRouteImpact>>, TError, TData>>, axios?: AxiosRequestConfig}
+ , queryClient?: QueryClient
+ ):  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRouteImpactSuspenseQueryOptions(routeId,params,options)
 
   const query = useSuspenseQuery(queryOptions, queryClient) as  UseSuspenseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

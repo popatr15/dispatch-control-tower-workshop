@@ -14,6 +14,61 @@ action -> insight loop on the shared workshop data:
 
 Specs: `PRP.md` (this demo), `../docs/PRD.md`, `../docs/DATA_CONTRACT.md`.
 
+## The guided flow
+
+The UI is a linear four-step stepper, about a 60-second hero workflow. The decision it
+enables: **which late stops do I move, to which route, and why, before the SLA breach
+compounds.** The step lives in the URL (`/?step=act&hub=DEPOT_NYC&route=R-...-002`), so any
+step is deep-linkable.
+
+| Step | What you do | Screenshot |
+|---|---|---|
+| **1 See** | Hubs with a red / amber / green status next to a map. Newark is the only red hub. Pick it, then its red route R-002. | [step 1](docs/guided-flow/step1-see.png) |
+| **2 Why** | Ask Genie one of the two canonical questions. Answer plus collapsible SQL. | [step 2](docs/guided-flow/step2-why.png) |
+| **3 Act** | 3-5 suggested reassigns for R-002. Apply (reason `sla_risk` prefilled) and confirm. "Pick another route" overrides the target. | [step 3](docs/guided-flow/step3-act.png) |
+| **4 Prove** | Before/after strip (route late count and risk, hub on-time vs SLA target), your last five decisions with the features captured, and how they reach `decision_labels`. | [step 4](docs/guided-flow/step4-prove.png) |
+
+The UI only shows this flow. The backend keeps every endpoint (approvals, exceptions,
+comments, route state, role gating) and its tests; the Approvals page, role switch,
+Exceptions, comments, route-state, expedite, filters and extra map layers are not in the UI.
+`/audit` is still served and is linked from Prove.
+
+### The hero scenario
+
+`app/src/dispatch_tower/services/scenario.py` reshapes routes and stops **at read time**
+(warehouse and offline mock alike). The shared gold tables, `generate.py` and the data
+contract are untouched, so demo1 is unaffected.
+
+| Rule | Result |
+|---|---|
+| Newark (`DEPOT_NYC`) route R-002 | The only red route: 12 late, 8 at-risk stops, risk 64% |
+| Newark R-010 | Clean, risk 0%, 6 spare slots: the target for R-002's late stops |
+| Newark's other routes | Clean and full (capacity = stops), so R-010 is the only place to move to |
+| Boston (`DEPOT_BOS`) | The one amber hub (R-001: 5 late, 3 at risk) |
+| Every other hub | Green: at most 1 late and 2 at-risk stops per route |
+| Route `risk_score` | Derived from stop status (`effective.derive_risk`): a late stop counts 1, an at-risk stop 0.5, against a 25% tolerance. No late or at-risk stops means risk 0 |
+| Capacity | Every route fits its vehicle (capacity >= stops) |
+| Suggestions | At most 5 stops, one option each, within 60 km, same hub |
+
+Impact (`GET /api/routes/{id}/impact`) is a heuristic, not a routing solver: a moved late or
+at-risk stop counts as on time on its new route when that route has room for it.
+
+### 60-second demo script
+
+1. **See (10 s).** "One hub is red." Point at Newark on the map and in the list (93% on time,
+   target 94%). Click Newark, then **R-002** (12 late, 8 at risk).
+2. **Why (15 s).** Click *Which depots missed SLA most last week?* Newark and Boston lead.
+   Open *Show the SQL Genie wrote*. Optionally click the carrier question.
+3. **Act (25 s).** Five suggestions, all to R-010 (0% risk, room to spare). Click **Apply**,
+   note the prefilled reason `sla_risk`, **Confirm**. Repeat for two or three stops. Click
+   **Prove it**.
+4. **Prove (10 s).** Late stops 12 -> 7 after five moves, risk falls from 64% to 46%, below the 50% at-risk
+   line, and Newark's on-time share climbs from 93% to 95%, past its 94% target. Your decisions are listed with the
+   features captured. Run `sync_decisions`, then open the manager dashboard.
+
+Reset between runs: `databricks bundle run seed_reset -t dev --profile <your-profile>`
+(offline mock mode resets on restart).
+
 ## Layout
 
 ```
@@ -119,7 +174,7 @@ creating its own.
 The actor on every write is the signed-in user from the Apps forwarded headers
 (`X-Forwarded-Email`). Role resolution, in order:
 
-1. Workshop switch (`allow_role_switch=true`): the role picker in the header.
+1. Workshop switch (`allow_role_switch=true`): the `X-Dispatch-Role` request header. The guided UI has no role picker; the switch is API-only.
 2. `role_overrides` for specific users.
 3. Group membership read with the user's on-behalf-of token: `managers` or
    `dispatchers` (names configurable via `DISPATCH_MANAGER_GROUP` / `DISPATCH_DISPATCHER_GROUP`).
@@ -165,6 +220,14 @@ transform can then run over those Delta tables.
   otherwise its depot's; with the shared data almost all history falls back to
   the depot, so the heat effectively shows which depots run late, not where
   along the routes. Live stops (today) use their own coordinates.
+- **Impact is a projection.** Hub, route and map figures outside the Prove strip still show
+  the raw statuses; only `/api/routes/{id}/impact` counts a moved late stop as on time.
+- **Genie reads the unmodified gold tables.** The two canonical questions are history-based
+  (`depot_sla_daily`, `delivery_history`: Newark and Boston miss SLA, `CAR_NEF` is the late
+  Northeast carrier), so they agree with the hero scenario. A question about *today's* late
+  stops reflects the gold `stops` table, not the scenario overlay.
+- **Offline mock geography is rough.** The mock spirals stops outward from each depot, so some
+  fall over water. The deployed data is land-anchored.
 - Every Genie question is written to `genie_messages` with a `genie.ask` audit
   row in the same transaction; `sync_decisions` ignores that action (it is not a
   routing decision).
@@ -174,15 +237,16 @@ transform can then run over those Delta tables.
 ```bash
 cd demo2/app
 uv sync
-DISPATCH_MOCK=true DISPATCH_ALLOW_ROLE_SWITCH=true DISPATCH_ALLOW_SELF_APPROVAL=true \
+DISPATCH_MOCK=true \
   uv run uvicorn dispatch_tower.app:app --app-dir src --port 8000 --reload
 # second terminal: hot-reloading UI on :5173, proxies /api to :8000
 cd demo2/app/ui && bun install && bun run dev
 ```
 
-Mock mode uses deterministic synthetic data shaped like the contract (8 depots,
-25 routes, 2,500 stops for today), an in-memory transactional store, and canned
-Genie answers. Open two browser windows to see live route-state updates.
+Mock mode uses deterministic synthetic data shaped like the contract (the same 8 depots
+and carriers as the shared data, 25 routes, 2,500 stops for today) with the hero scenario
+applied, an in-memory transactional store, and canned Genie answers. Open
+`http://localhost:8000/` (built UI) or `:5173` (hot-reloading dev server).
 
 After changing backend routes, regenerate the typed client:
 `cd demo2/app/ui && bun run gen:api` (writes `openapi.json` and `src/lib/api.ts`).
@@ -200,37 +264,25 @@ rollback (in memory and against a throwaway local Postgres when `initdb`/`pg_ctl
 are installed; otherwise those tests skip), role gating, the approval state
 machine, and the sync transform.
 
-## Workshop walkthrough (about 15 minutes)
+## Workshop walkthrough (about 5 minutes)
 
-1. **Open the app** (Operations). Point out the map layers: stop clusters
-   colored by worst status, route lines weighted by risk, depot catchment
-   circles. Toggle "30-day late heat". Filter Region = Northeast.
-2. **Spot the risk.** The left list is sorted by risk. Click the top route: the
-   map fits to it and the Route tab shows its stops, state, and expedite form.
-3. **Ask why.** Ask Genie tab -> "Which depots missed SLA most last week, and
-   what do the late stops have in common?" Expand the SQL. Follow up with
-   "Show late deliveries in the Northeast by carrier." Give a thumbs up.
-4. **Act.** Click a late stop, choose a lower-risk route at the same depot,
-   reason `sla_risk`, Reassign. The stop gets a purple ring and the route
-   counts change. Log an exception (`customer_unavailable`) on another stop.
-5. **Live state.** Open the app in a second window (or have a neighbor open
-   it). Set the route's live state to `delayed`; the other window updates within
-   a couple of seconds and shows who changed it.
-6. **Approval workflow.** On the route, request a $250 expedite with a
-   justification. Switch the role picker to Manager, open Approvals, approve
-   with a comment. Switching back to Dispatcher shows the decide buttons gone.
-7. **Audit.** Audit trail page: every action with actor, time, reason and the
-   payload of features seen at decision time. Filter by your user.
-8. **Close the loop.** Run `databricks bundle run sync_decisions -t dev
-   --profile <your-profile>`, then query `<catalog>.<schema>.decision_labels`
-   and open the manager dashboard: SLA by depot, exceptions by type, decision
-   volume.
-9. **Reset** for the next group: `databricks bundle run seed_reset -t dev
+Run the 60-second script above, then go one level deeper:
+
+1. **Audit.** From Prove, open **Full audit trail**: every action with actor, time, reason and
+   the payload of features seen at decision time. Filter by your user.
+2. **Close the loop.** Run `databricks bundle run sync_decisions -t dev
+   --profile <your-profile>`, then query `<catalog>.<schema>.decision_labels` and open the
+   manager dashboard: SLA by depot, late causes, decision volume.
+3. **Reset** for the next group: `databricks bundle run seed_reset -t dev
    --profile <your-profile>`.
+
+Approvals (managers decide expedite fees), exceptions, comments and live route state are
+still implemented in the API and covered by tests; they are not part of the guided UI. Use
+the API (`/docs`) to show them.
 
 ### Genie evaluation questions
 
-Ask these in the Genie tab; each answer must show SQL that runs and values that
+Ask these in the Why step (the first two are its buttons); each answer must show SQL that runs and values that
 match the tables (no invented depots or carriers):
 
 1. Which depots missed SLA most last week, and what do the late stops have in common?

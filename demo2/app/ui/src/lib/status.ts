@@ -15,8 +15,17 @@ export const STATUS_RGB: Record<StopStatus, [number, number, number]> = {
   delivered: [138, 143, 152],
 };
 
-// One small marker size for every status; color carries the status.
-export const STOP_RADIUS = 4;
+// Late and at-risk stops are drawn larger so they read without relying on color alone.
+export const STATUS_RADIUS: Record<StopStatus, number> = {
+  late: 7, at_risk: 6, on_time: 4, delivered: 3,
+};
+
+export type Health = "red" | "amber" | "green";
+export const HEALTH_HEX: Record<Health, string> = { red: "#d55e00", amber: "#e69f00", green: "#009e73" };
+export const HEALTH_RGB: Record<Health, [number, number, number]> = {
+  red: [213, 94, 0], amber: [230, 159, 0], green: [0, 158, 115],
+};
+export const HEALTH_LABEL: Record<Health, string> = { red: "Needs action", amber: "Watch", green: "On track" };
 
 export const STATUS_LABEL: Record<StopStatus, string> = {
   on_time: "On time", at_risk: "At risk", late: "Late", delivered: "Delivered",

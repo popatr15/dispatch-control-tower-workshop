@@ -5,11 +5,11 @@ export type LiveMode = "connecting" | "live" | "polling";
 
 // Query-key prefixes (Orval keys start with the request path) refreshed per event type.
 const AFFECTS: Record<string, string[]> = {
-  "stop.reassigned": ["/api/routes", "/api/stops", "/api/map/clusters", "/api/audit"],
-  "exception.changed": ["/api/exceptions", "/api/routes", "/api/stops", "/api/audit"],
-  "approval.changed": ["/api/approvals", "/api/routes", "/api/audit"],
-  "comment.added": ["/api/comments", "/api/routes", "/api/stops", "/api/audit"],
-  "route_state.changed": ["/api/routes", "/api/route-state", "/api/audit"],
+  "stop.reassigned": ["/api/routes", "/api/hubs", "/api/stops", "/api/audit"],
+  "exception.changed": ["/api/routes", "/api/hubs", "/api/stops", "/api/audit"],
+  "approval.changed": ["/api/routes", "/api/audit"],
+  "comment.added": ["/api/audit"],
+  "route_state.changed": ["/api/routes", "/api/hubs", "/api/audit"],
 };
 const ALL = [...new Set(Object.values(AFFECTS).flat())];
 const POLL_MS = 10_000;

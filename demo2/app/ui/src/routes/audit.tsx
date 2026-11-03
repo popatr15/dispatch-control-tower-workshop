@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Boundary } from "@/components/boundary";
 import { Input, Select } from "@/components/ui/inputs";
@@ -16,6 +17,7 @@ export function AuditPage() {
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-3">
+        <Link to="/" search={{ step: "prove" }} className="text-xs text-accent underline">← Back to the flow</Link>
         <h1 className="text-lg font-semibold">Audit trail</h1>
         <p className="text-sm text-muted-foreground">Every write, recorded in the same Lakebase transaction as the change it describes.</p>
       </div>

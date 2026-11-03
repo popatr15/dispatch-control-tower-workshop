@@ -824,6 +824,16 @@
             "title": "Depot Id",
             "type": "string"
           },
+          "health": {
+            "default": "green",
+            "enum": [
+              "red",
+              "amber",
+              "green"
+            ],
+            "title": "Health",
+            "type": "string"
+          },
           "lat": {
             "title": "Lat",
             "type": "number"
@@ -889,6 +899,130 @@
           "at_risk_stops"
         ],
         "title": "HubOut",
+        "type": "object"
+      },
+      "ImpactOut": {
+        "properties": {
+          "hub_id": {
+            "title": "Hub Id",
+            "type": "string"
+          },
+          "hub_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub Name"
+          },
+          "hub_on_time_after": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub On Time After"
+          },
+          "hub_on_time_before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub On Time Before"
+          },
+          "meets_sla_after": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meets Sla After"
+          },
+          "meets_sla_before": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meets Sla Before"
+          },
+          "moved_stops": {
+            "title": "Moved Stops",
+            "type": "integer"
+          },
+          "projected_on_time": {
+            "title": "Projected On Time",
+            "type": "integer"
+          },
+          "route_at_risk_after": {
+            "title": "Route At Risk After",
+            "type": "integer"
+          },
+          "route_at_risk_before": {
+            "title": "Route At Risk Before",
+            "type": "integer"
+          },
+          "route_id": {
+            "title": "Route Id",
+            "type": "string"
+          },
+          "route_late_after": {
+            "title": "Route Late After",
+            "type": "integer"
+          },
+          "route_late_before": {
+            "title": "Route Late Before",
+            "type": "integer"
+          },
+          "route_risk_after": {
+            "title": "Route Risk After",
+            "type": "number"
+          },
+          "route_risk_before": {
+            "title": "Route Risk Before",
+            "type": "number"
+          },
+          "sla_target_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sla Target Pct"
+          }
+        },
+        "required": [
+          "route_id",
+          "hub_id",
+          "moved_stops",
+          "projected_on_time",
+          "route_late_before",
+          "route_late_after",
+          "route_at_risk_before",
+          "route_at_risk_after",
+          "route_risk_before",
+          "route_risk_after"
+        ],
+        "title": "ImpactOut",
         "type": "object"
       },
       "MeOut": {
@@ -3763,6 +3897,66 @@
           }
         },
         "summary": "Get Route",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/routes/{route_id}/impact": {
+      "get": {
+        "description": "Before/after of the reassignments applied so far (heuristic projection).",
+        "operationId": "getRouteImpact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_id",
+            "required": true,
+            "schema": {
+              "title": "Route Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Route Impact",
         "tags": [
           "operations"
         ]

@@ -46,8 +46,8 @@ def _targets(route: Row, city: str, existing_late: int, existing_at_risk: int) -
     num = route_number(route["route_id"])
     if city == HERO_CITY and num == HERO_NUM:
         return HERO_LATE, HERO_AT_RISK
-    if city == HERO_CITY and num == TARGET_NUM:
-        return 0, 0
+    if city == HERO_CITY:
+        return 0, 0  # the hero hub's other routes are clean: the problem is one route
     if city == AMBER_CITY and num == AMBER_NUM:
         return AMBER_LATE, AMBER_AT_RISK
     return min(existing_late, CALM_MAX_LATE), min(existing_at_risk, CALM_MAX_AT_RISK)
