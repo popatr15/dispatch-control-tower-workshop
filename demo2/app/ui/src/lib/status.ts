@@ -15,10 +15,8 @@ export const STATUS_RGB: Record<StopStatus, [number, number, number]> = {
   delivered: [138, 143, 152],
 };
 
-// Larger, outlined markers for the statuses that need attention.
-export const STATUS_RADIUS: Record<StopStatus, number> = {
-  delivered: 3, on_time: 4, at_risk: 6, late: 7,
-};
+// One small marker size for every status; color carries the status.
+export const STOP_RADIUS = 4;
 
 export const STATUS_LABEL: Record<StopStatus, string> = {
   on_time: "On time", at_risk: "At risk", late: "Late", delivered: "Delivered",
@@ -28,8 +26,11 @@ export const STATUS_GLYPH: Record<StopStatus, string> = {
   on_time: "●", at_risk: "▲", late: "■", delivered: "○",
 };
 
+// Matches the backend AT_RISK_ROUTE_SCORE (services/recommend.py).
+export const AT_RISK_SCORE = 0.5;
+
 export function riskLabel(score: number): "high" | "medium" | "low" {
-  if (score >= 0.6) return "high";
+  if (score >= AT_RISK_SCORE) return "high";
   if (score >= 0.3) return "medium";
   return "low";
 }

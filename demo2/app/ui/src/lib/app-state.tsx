@@ -14,24 +14,27 @@ applyRoleHeader(localStorage.getItem(ROLE_KEY) ?? undefined);
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<MapFilters>({});
   const [layers, setLayers] = useState<LayerToggles>({
-    clusters: true, routes: true, catchments: true, heat: false,
+    allRoutes: false, clusters: false, catchments: false, heat: false,
   });
   const [routeId, setRouteId] = useState<string>();
   const [stopId, setStopId] = useState<string>();
-  const [panel, setPanel] = useState("route");
   const [roleOverride, setRoleState] = useState<string | undefined>(
     localStorage.getItem(ROLE_KEY) ?? undefined,
   );
 
+  const selectHub = useCallback((id?: string) => {
+    setFilters((f) => ({ ...f, depot_id: id }));
+    setRouteId(undefined);
+    setStopId(undefined);
+  }, []);
   const selectRoute = useCallback((id?: string) => {
     setRouteId(id);
     setStopId(undefined);
-    if (id) setPanel("route");
   }, []);
-  const selectStop = useCallback((id?: string, route?: string) => {
+  const selectStop = useCallback((id?: string, route?: string, hub?: string) => {
     setStopId(id);
     if (route) setRouteId(route);
-    if (id) setPanel("stop");
+    if (hub) setFilters((f) => ({ ...f, depot_id: hub }));
   }, []);
   const toggleLayer = useCallback(
     (k: keyof LayerToggles) => setLayers((l) => ({ ...l, [k]: !l[k] })),
@@ -46,10 +49,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      filters, setFilters, layers, toggleLayer, routeId, stopId, selectRoute, selectStop,
-      panel, setPanel, roleOverride, setRoleOverride,
+      filters, setFilters, layers, toggleLayer, hubId: filters.depot_id, routeId, stopId,
+      selectHub, selectRoute, selectStop, roleOverride, setRoleOverride,
     }),
-    [filters, layers, toggleLayer, routeId, stopId, selectRoute, selectStop, panel,
+    [filters, layers, toggleLayer, routeId, stopId, selectHub, selectRoute, selectStop,
       roleOverride, setRoleOverride],
   );
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

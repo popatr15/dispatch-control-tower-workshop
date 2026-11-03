@@ -2,14 +2,15 @@ import { createContext, useContext } from "react";
 
 export interface MapFilters {
   day?: string;
-  depot_id?: string;
+  depot_id?: string; // the selected hub
   carrier_id?: string;
   region?: string;
 }
 
+/** Advanced map layers, all off by default (the "Layers" control). */
 export interface LayerToggles {
+  allRoutes: boolean;
   clusters: boolean;
-  routes: boolean;
   catchments: boolean;
   heat: boolean;
 }
@@ -19,12 +20,13 @@ export interface AppState {
   setFilters: (f: MapFilters) => void;
   layers: LayerToggles;
   toggleLayer: (k: keyof LayerToggles) => void;
+  hubId?: string;
   routeId?: string;
   stopId?: string;
+  /** Open a hub (or the hub picker when undefined); clears route and stop. */
+  selectHub: (id?: string) => void;
   selectRoute: (id?: string) => void;
-  selectStop: (stopId?: string, routeId?: string) => void;
-  panel: string;
-  setPanel: (p: string) => void;
+  selectStop: (stopId?: string, routeId?: string, hubId?: string) => void;
   roleOverride?: string;
   setRoleOverride: (role?: string) => void;
 }
