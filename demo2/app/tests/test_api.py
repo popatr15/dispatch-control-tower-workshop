@@ -13,7 +13,7 @@ def test_reads(client):
         (r["risk_score"] for r in routes), reverse=True
     )
     ne = client.get("/api/routes", params={"region": "Northeast"}).json()
-    assert ne and all(r["depot_id"] in ("DEP-NYC", "DEP-BOS") for r in ne)
+    assert ne and all(r["depot_id"] in ("DEPOT_BOS", "DEPOT_NYC", "DEPOT_PHL") for r in ne)
     detail = client.get(f"/api/routes/{routes[0]['route_id']}").json()
     assert detail["route"]["route_id"] == routes[0]["route_id"] and detail["stops"]
     assert client.get("/api/routes/R-nope").status_code == 404

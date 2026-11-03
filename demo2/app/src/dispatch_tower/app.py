@@ -27,13 +27,13 @@ def build_context(settings: Settings, bus: EventBus) -> AppContext:
     """Wire real (Databricks) or mock dependencies from settings."""
     from .services.genie import MockGenie, SdkGenie
     from .services.identity import GroupLookup, obo_groups
-    from .services.warehouse import MockReader, SqlWarehouseReader
+    from .services.warehouse import MockReader, ScenarioReader, SqlWarehouseReader
 
     if settings.mock:
         from .db.memory import MemoryStore
         from .mock.fixtures import build
 
-        reader = CachedReader(MockReader(build()), settings.cache_ttl_seconds)
+        reader = CachedReader(MockReader(build(hero=True)), settings.cache_ttl_seconds)
         store = MemoryStore(bus)
         genie = MockGenie(reader)
         groups = None
@@ -43,7 +43,9 @@ def build_context(settings: Settings, bus: EventBus) -> AppContext:
         from .db.postgres import PostgresStore, TokenProvider, resolve_endpoint, sdk_token_minter
 
         ws = WorkspaceClient()
-        reader = CachedReader(SqlWarehouseReader(ws, settings), settings.cache_ttl_seconds)
+        reader = CachedReader(
+            ScenarioReader(SqlWarehouseReader(ws, settings)), settings.cache_ttl_seconds
+        )
         if not (settings.pg_host and settings.pg_database and settings.pg_user):
             raise RuntimeError(
                 "Lakebase env (PGHOST/PGDATABASE/PGUSER) missing; "

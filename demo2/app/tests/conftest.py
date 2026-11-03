@@ -33,10 +33,12 @@ def make_settings(**overrides) -> Settings:
     return Settings(_env_file=None, **base)
 
 
-def make_ctx(settings: Settings | None = None, store=None) -> AppContext:
+def make_ctx(settings: Settings | None = None, store=None, *, hero: bool = False) -> AppContext:
+    """Small mock world; `hero=True` is the full demo2 scenario (25 routes, 100 stops each)."""
     settings = settings or make_settings()
     bus = EventBus()
-    reader = CachedReader(MockReader(build(TODAY, routes_per_day=6, stops_per_route=20)), 60)
+    data = build(TODAY, hero=True) if hero else build(TODAY, routes_per_day=6, stops_per_route=20)
+    reader = CachedReader(MockReader(data), 60)
     store = store if store is not None else MemoryStore(bus)
     decisions = DecisionService(
         store,

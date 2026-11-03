@@ -235,6 +235,7 @@ class HubOut(DepotOut):
     late_stops: int
     at_risk_stops: int
     on_time_pct: float | None = None
+    health: Literal["red", "amber", "green"] = "green"
 
 
 class SuggestionOut(BaseModel):
@@ -260,6 +261,25 @@ class RouteSuggestionsOut(BaseModel):
     at_risk: bool
     at_risk_threshold: float
     suggestions: list[SuggestionOut]
+
+
+class ImpactOut(BaseModel):
+    route_id: str
+    hub_id: str
+    hub_name: str | None = None
+    moved_stops: int
+    projected_on_time: int
+    route_late_before: int
+    route_late_after: int
+    route_at_risk_before: int
+    route_at_risk_after: int
+    route_risk_before: float
+    route_risk_after: float
+    hub_on_time_before: float | None = None
+    hub_on_time_after: float | None = None
+    sla_target_pct: float | None = None
+    meets_sla_before: bool | None = None
+    meets_sla_after: bool | None = None
 
 
 class StopClusterOut(BaseModel):

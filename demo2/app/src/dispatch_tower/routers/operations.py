@@ -11,6 +11,7 @@ from ..models import (
     DepotOut,
     HeatCellOut,
     HubOut,
+    ImpactOut,
     ReassignIn,
     ReassignmentOut,
     RouteDetailOut,
@@ -26,6 +27,8 @@ from ..models import (
 from ..services import effective, recommend
 
 router = APIRouter(tags=["operations"])
+
+SUGGESTION_RADIUS_KM = 60.0  # metro hubs are wide; stay within one hub's catchment
 
 
 def _day(ctx, day: date | None) -> date:
@@ -107,7 +110,28 @@ def route_suggestions(ctx: Ctx, route_id: str, day: date | None = None):
         route_id=route_id,
         at_risk=(route.get("risk_score") or 0) >= recommend.AT_RISK_ROUTE_SCORE,
         at_risk_threshold=recommend.AT_RISK_ROUTE_SCORE,
-        suggestions=recommend.suggest_reassigns(route_id, routes, _effective_stops(ctx, d)),
+        suggestions=recommend.suggest_reassigns(
+            route_id,
+            routes,
+            _effective_stops(ctx, d),
+            per_stop=1,
+            max_stops=recommend.SUGGESTION_STOPS,
+            max_distance_km=SUGGESTION_RADIUS_KM,
+        ),
+    )
+
+
+@router.get("/routes/{route_id}/impact", response_model=ImpactOut, operation_id="getRouteImpact")
+def route_impact(ctx: Ctx, route_id: str, day: date | None = None):
+    """Before/after of the reassignments applied so far (heuristic projection)."""
+    d = _day(ctx, day)
+    routes = effective.apply_route_state(ctx.reader.routes(d), ctx.store.list_route_state())
+    route = next((r for r in routes if r["route_id"] == route_id), None)
+    if route is None:
+        raise HTTPException(404, f"route {route_id} not found")
+    depot = next((x for x in ctx.reader.depots() if x["depot_id"] == route["depot_id"]), None)
+    return recommend.project_impact(
+        route_id, routes, ctx.reader.stops(d), _effective_stops(ctx, d), depot
     )
 
 

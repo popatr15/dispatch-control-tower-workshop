@@ -14,6 +14,18 @@ Row = dict[str, Any]
 
 STATUS_SEVERITY = {"late": 3, "at_risk": 2, "on_time": 1, "delivered": 0}
 
+# A route is "at risk" (score >= 0.5, see recommend.AT_RISK_ROUTE_SCORE) once its weighted
+# late share reaches half of this tolerance: a late stop counts 1, an at-risk stop 0.5.
+RISK_TOLERANCE = 0.25
+
+
+def derive_risk(late: int, at_risk: int, total: int) -> float:
+    """Route risk 0-1 from its stop statuses, so a route with no late or at-risk stops is
+    never flagged (late/at_risk both 0 -> 0.0)."""
+    if total <= 0:
+        return 0.0
+    return round(min(0.99, (late + 0.5 * at_risk) / (RISK_TOLERANCE * total)), 3)
+
 
 def apply_overrides(stops: list[Row], latest: dict[str, Row]) -> list[Row]:
     out = []

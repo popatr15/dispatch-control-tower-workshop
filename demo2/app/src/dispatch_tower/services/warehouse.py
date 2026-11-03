@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from ..config import Settings
 from ..mock.fixtures import MockData
+from .scenario import apply_scenario
 
 log = logging.getLogger(__name__)
 Row = dict[str, Any]
@@ -220,6 +221,47 @@ class MockReader:
 
     def history_cells(self, day: date, days: int) -> list[Row]:
         return [dict(r) for r in self._d.history_cells]
+
+
+# --- hero scenario ---------------------------------------------------------
+
+
+class ScenarioReader:
+    """Serves another reader's data reshaped by the demo2 hero scenario.
+
+    Only routes and stops change (services/scenario.py); the shared gold tables are
+    untouched, so demo1 and the data contract are unaffected.
+    """
+
+    def __init__(self, inner: GoldReader) -> None:
+        self._inner = inner
+        self.kind = inner.kind
+
+    def depots(self) -> list[Row]:
+        return self._inner.depots()
+
+    def carriers(self) -> list[Row]:
+        return self._inner.carriers()
+
+    def route_dates(self) -> list[date]:
+        return self._inner.route_dates()
+
+    def routes(self, day: date) -> list[Row]:
+        routes, _ = apply_scenario(
+            self._inner.depots(), self._inner.routes(day), self._inner.stops(day)
+        )
+        return sorted(routes, key=lambda r: (-(r.get("risk_score") or 0), r["route_id"]))
+
+    def stops(self, day: date) -> list[Row]:
+        return apply_scenario(
+            self._inner.depots(), self._inner.routes(day), self._inner.stops(day)
+        )[1]
+
+    def route_paths(self, day: date) -> list[Row]:
+        return self._inner.route_paths(day)
+
+    def history_cells(self, day: date, days: int) -> list[Row]:
+        return self._inner.history_cells(day, days)
 
 
 # --- cache -----------------------------------------------------------------

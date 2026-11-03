@@ -179,6 +179,7 @@ def test_hub_summaries_counts_effective_stops():
         "late_stops": 1,
         "at_risk_stops": 1,
         "on_time_pct": round(1 / 3, 4),
+        "health": "red",
     }
     assert hubs["D2"]["stops"] == 2 and hubs["D2"]["on_time_pct"] == 1.0
     assert hubs["D3"]["routes"] == 0 and hubs["D3"]["on_time_pct"] is None

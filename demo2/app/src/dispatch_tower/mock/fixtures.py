@@ -13,22 +13,89 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
+from ..services.effective import derive_risk
+from ..services.scenario import apply_scenario
+
 Row = dict[str, Any]
 
-DEPOTS = [
-    ("DEP-NYC", "Newark Hub", "Newark", "NJ", "Northeast", 40.7357, -74.1724, 45.0, 0.95),
-    ("DEP-BOS", "Boston North", "Boston", "MA", "Northeast", 42.3601, -71.0589, 40.0, 0.95),
-    ("DEP-ATL", "Atlanta South", "Atlanta", "GA", "Southeast", 33.7490, -84.3880, 50.0, 0.93),
-    ("DEP-CHI", "Chicago West", "Chicago", "IL", "Midwest", 41.8781, -87.6298, 50.0, 0.94),
-    ("DEP-DAL", "Dallas Central", "Dallas", "TX", "Southwest", 32.7767, -96.7970, 60.0, 0.92),
-    ("DEP-PHX", "Phoenix Valley", "Phoenix", "AZ", "Southwest", 33.4484, -112.0740, 55.0, 0.92),
-    ("DEP-LAX", "Los Angeles Port", "Los Angeles", "CA", "West", 34.0522, -118.2437, 55.0, 0.93),
-    ("DEP-SEA", "Seattle Sound", "Seattle", "WA", "West", 47.6062, -122.3321, 45.0, 0.94),
+# Same ids, order and names as the shared workshop data (data/src/workshop_data/generate.py),
+# so rehearsing offline shows the same hubs and routes as the deployed app.
+DEPOTS = [  # noqa: E501
+    ("DEPOT_BOS", "Boston Logan Depot", "Boston", "MA", "Northeast", 42.3601, -71.0589, 85.0, 0.93),
+    ("DEPOT_NYC", "Newark Metro Depot", "Newark", "NJ", "Northeast", 40.7357, -74.1724, 80.0, 0.94),
+    (
+        "DEPOT_PHL",
+        "Philadelphia Rail Depot",
+        "Philadelphia",
+        "PA",
+        "Northeast",
+        39.9526,
+        -75.1652,
+        70.0,
+        0.93,
+    ),
+    (
+        "DEPOT_ATL",
+        "Atlanta South Depot",
+        "Atlanta",
+        "GA",
+        "Southeast",
+        33.7490,
+        -84.3880,
+        95.0,
+        0.92,
+    ),
+    (
+        "DEPOT_CHI",
+        "Chicago Midway Depot",
+        "Chicago",
+        "IL",
+        "Midwest",
+        41.8781,
+        -87.6298,
+        100.0,
+        0.92,
+    ),
+    (
+        "DEPOT_DAL",
+        "Dallas Trinity Depot",
+        "Dallas",
+        "TX",
+        "Southwest",
+        32.7767,
+        -96.7970,
+        110.0,
+        0.91,
+    ),
+    (
+        "DEPOT_DEN",
+        "Denver Front Range Depot",
+        "Denver",
+        "CO",
+        "West",
+        39.7392,
+        -104.9903,
+        120.0,
+        0.91,
+    ),
+    (
+        "DEPOT_LAX",
+        "Los Angeles Basin Depot",
+        "Los Angeles",
+        "CA",
+        "West",
+        34.0522,
+        -118.2437,
+        90.0,
+        0.92,
+    ),
 ]
+NE_CARRIER = "CAR_NEF"
 CARRIERS = [
-    ("CAR-01", "Northstar Freight", "NSTF"),
-    ("CAR-02", "Bluebird Logistics", "BBLG"),
-    ("CAR-03", "Summit Courier", "SMCR"),
+    (NE_CARRIER, "Northeast Freight Express", "NEFX"),
+    ("CAR_RAP", "RapidRoute Logistics", "RPDL"),
+    ("CAR_BLU", "BlueLine Carrier", "BLUC"),
+    ("CAR_SUM", "Summit Parcel", "SUMP"),
 ]
 CUSTOMERS = [
     "Acme Supply",
@@ -75,7 +142,9 @@ def build(
     routes_per_day: int = 25,
     stops_per_route: int = 100,
     seed: int = 42,
+    hero: bool = False,
 ) -> MockData:
+    """Synthetic day of data. `hero=True` applies the demo2 hero scenario (services/scenario.py)."""
     rng = random.Random(seed)
     today = today or datetime.now(UTC).date()
     data = MockData(today=today)
@@ -100,7 +169,7 @@ def build(
             dict(
                 vehicle_id=f"VEH-{i + 1:03d}",
                 depot_id=depot["depot_id"],
-                carrier_id=CARRIERS[i % len(CARRIERS)][0],
+                carrier_id=NE_CARRIER if depot["region"] == "Northeast" else CARRIERS[1 + i % 3][0],
                 vehicle_type="box_truck" if i % 3 else "van",
                 # 100 (full at the default 100 stops/route), 110 or 120
                 capacity_stops=100 + 10 * (i % 3),
@@ -112,7 +181,7 @@ def build(
         vehicle = data.vehicles[r]
         depot = next(d for d in data.depots if d["depot_id"] == vehicle["depot_id"])
         carrier_id = vehicle["carrier_id"]
-        troubled = depot["region"] == "Northeast" and carrier_id == "CAR-01"
+        troubled = depot["region"] == "Northeast" and carrier_id == NE_CARRIER
         route_id = f"R-{today:%Y%m%d}-{r + 1:03d}"
         start = datetime.combine(today, time(7, 0), tzinfo=UTC) + timedelta(minutes=15 * (r % 4))
         late_p = 0.35 if troubled else 0.04 + 0.02 * (r % 3)
@@ -183,9 +252,7 @@ def build(
             path.append((round(lat, 6), round(lon, 6)))
         late = statuses.count("late")
         at_risk = statuses.count("at_risk")
-        risk = min(
-            0.99, round((late * 2 + at_risk) / (stops_per_route * 0.9) + rng.uniform(0, 0.1), 3)
-        )
+        risk = derive_risk(late, at_risk, stops_per_route)
         reason = None
         if risk >= 0.5:
             reason = (
@@ -229,9 +296,18 @@ def build(
                     lon=lon,
                     depot_id=depot["depot_id"],
                     region=depot["region"],
-                    carrier_id=CARRIERS[rng.randrange(3)][0],
+                    carrier_id=CARRIERS[rng.randrange(len(CARRIERS))][0],
                     deliveries=deliveries,
                     on_time=on_time,
                 )
             )
+    if hero:
+        capacity = {v["vehicle_id"]: v["capacity_stops"] for v in data.vehicles}
+        routes = [{**r, "capacity_stops": capacity.get(r["vehicle_id"])} for r in data.routes]
+        routes, data.stops = apply_scenario(data.depots, routes, data.stops)
+        # Capacity lives on the vehicle in the contract; carry the scenario's value back.
+        by_vehicle = {r["vehicle_id"]: r["capacity_stops"] for r in routes}
+        for v in data.vehicles:
+            v["capacity_stops"] = by_vehicle.get(v["vehicle_id"], v["capacity_stops"])
+        data.routes = [{k: v for k, v in r.items() if k != "capacity_stops"} for r in routes]
     return data

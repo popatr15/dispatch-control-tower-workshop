@@ -12,12 +12,16 @@ import math
 from collections import defaultdict
 from typing import Any
 
+from .effective import derive_risk
+
 Row = dict[str, Any]
 
 AT_RISK_ROUTE_SCORE = 0.5  # a route at or above this risk_score is "at risk"
 ACTIONABLE = ("late", "at_risk")  # stops a suggestion may move
 KM_PER_RISK_POINT = 10.0  # ranking: 0.1 lower target risk is worth 1 km of detour
 CLOSED_ROUTE_STATES = ("completed",)
+AMBER_ROUTE_SCORE = 0.25  # a hub whose worst route is at or above this is amber
+SUGGESTION_STOPS = 5  # a short, readable list: the worst stops first
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -34,12 +38,13 @@ def hub_summaries(depots: list[Row], routes: list[Row], effective_stops: list[Ro
     `on_time_pct` is the share of stops that are delivered or on time.
     """
     route_depot = {r["route_id"]: r["depot_id"] for r in routes}
-    stats: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    stats: dict[str, dict[str, Any]] = defaultdict(lambda: defaultdict(int))
     for r in routes:
         s = stats[r["depot_id"]]
         s["routes"] += 1
         if (r.get("risk_score") or 0) >= AT_RISK_ROUTE_SCORE:
             s["at_risk_routes"] += 1
+        s["max_risk"] = max(s["max_risk"], r.get("risk_score") or 0)
     for stop in effective_stops:
         s = stats[route_depot.get(stop["route_id"], stop["depot_id"])]
         s["stops"] += 1
@@ -49,6 +54,7 @@ def hub_summaries(depots: list[Row], routes: list[Row], effective_stops: list[Ro
         s = stats.get(d["depot_id"], {})
         stops = s.get("stops", 0)
         good = s.get("on_time", 0) + s.get("delivered", 0)
+        on_time_pct = round(good / stops, 4) if stops else None
         out.append(
             {
                 **d,
@@ -57,11 +63,27 @@ def hub_summaries(depots: list[Row], routes: list[Row], effective_stops: list[Ro
                 "stops": stops,
                 "late_stops": s.get("late", 0),
                 "at_risk_stops": s.get("at_risk", 0),
-                "on_time_pct": round(good / stops, 4) if stops else None,
+                "on_time_pct": on_time_pct,
+                "health": hub_health(
+                    s.get("at_risk_routes", 0),
+                    s.get("max_risk", 0),
+                    on_time_pct,
+                    d.get("sla_target_pct"),
+                ),
             }
         )
     # Hubs that need attention first, then by name for a stable order.
     return sorted(out, key=lambda h: (-h["at_risk_routes"], -h["late_stops"], h["name"]))
+
+
+def hub_health(
+    at_risk_routes: int, max_route_risk: float, on_time_pct: float | None, sla_target: float | None
+) -> str:
+    """red: a route is at risk; amber: a route is drifting or the hub is under its SLA target."""
+    if at_risk_routes > 0:
+        return "red"
+    below = on_time_pct is not None and sla_target is not None and on_time_pct < sla_target
+    return "amber" if max_route_risk >= AMBER_ROUTE_SCORE or below else "green"
 
 
 def _spare(route: Row, load: int) -> int | None:
@@ -83,7 +105,7 @@ def suggest_reassigns(
     effective_stops: list[Row],
     *,
     per_stop: int = 2,
-    max_stops: int = 25,
+    max_stops: int = SUGGESTION_STOPS,
     max_distance_km: float = 30.0,
 ) -> list[Row]:
     """Suggested target routes for the late/at-risk stops on an at-risk route.
@@ -165,3 +187,89 @@ def suggest_reassigns(
         if ranked:
             spare[ranked[0][1]] -= 1
     return out
+
+
+def project_impact(
+    route_id: str,
+    routes: list[Row],
+    base_stops: list[Row],
+    effective_stops: list[Row],
+    depot: Row | None = None,
+) -> Row:
+    """Before/after view of the applied reassignments (a heuristic, not a routing solver).
+
+    "Before" is the gold data as loaded. "After" applies the reassignments, and a moved
+    late or at-risk stop counts as on time against its target route when that route has
+    slack (its stops, including the moved ones, fit its vehicle). Reports the route's
+    late count and risk, and its hub's on-time share, which is what the SLA is judged on.
+    """
+    by_id = {r["route_id"]: r for r in routes}
+    source = by_id.get(route_id)
+    if source is None:
+        raise KeyError(route_id)
+    hub_id = source["depot_id"]
+    hub_routes = {r["route_id"] for r in routes if r["depot_id"] == hub_id}
+
+    load: dict[str, int] = defaultdict(int)
+    for s in effective_stops:
+        load[s["route_id"]] += 1
+
+    def projected(stop: Row) -> str:
+        if not stop.get("reassigned") or stop["status"] not in ACTIONABLE:
+            return stop["status"]
+        target = by_id.get(stop["route_id"])
+        cap = target.get("capacity_stops") if target else None
+        if target and cap is not None and load[stop["route_id"]] <= cap:
+            return "on_time"
+        return stop["status"]
+
+    after_stops = [{**s, "status": projected(s)} for s in effective_stops]
+
+    def route_view(stops: list[Row]) -> tuple[int, int, int]:
+        mine = [s for s in stops if s["route_id"] == route_id]
+        return (
+            sum(1 for s in mine if s["status"] == "late"),
+            sum(1 for s in mine if s["status"] == "at_risk"),
+            len(mine),
+        )
+
+    def hub_pct(stops: list[Row]) -> float | None:
+        mine = [s for s in stops if s["route_id"] in hub_routes]
+        good = sum(1 for s in mine if s["status"] in ("on_time", "delivered"))
+        return round(good / len(mine), 4) if mine else None
+
+    # Gold stops carry their gold route; the "before" view is keyed on it.
+    before_stops = [
+        {**s, "route_id": s.get("original_route_id", s["route_id"])} for s in base_stops
+    ]
+    b_late, b_risk, b_total = route_view(before_stops)
+    a_late, a_risk, a_total = route_view(after_stops)
+    moved = [s for s in effective_stops if s.get("reassigned")]
+    on_time_before, on_time_after = hub_pct(before_stops), hub_pct(after_stops)
+    target = (depot or {}).get("sla_target_pct")
+    return {
+        "route_id": route_id,
+        "hub_id": hub_id,
+        "hub_name": (depot or {}).get("name"),
+        "moved_stops": sum(1 for s in moved if s.get("original_route_id") == route_id),
+        "projected_on_time": sum(
+            1
+            for before, after in zip(effective_stops, after_stops, strict=True)
+            if before["status"] != after["status"]
+        ),
+        "route_late_before": b_late,
+        "route_late_after": a_late,
+        "route_at_risk_before": b_risk,
+        "route_at_risk_after": a_risk,
+        "route_risk_before": derive_risk(b_late, b_risk, b_total),
+        "route_risk_after": derive_risk(a_late, a_risk, a_total),
+        "hub_on_time_before": on_time_before,
+        "hub_on_time_after": on_time_after,
+        "sla_target_pct": target,
+        "meets_sla_before": None
+        if on_time_before is None or target is None
+        else on_time_before >= target,
+        "meets_sla_after": None
+        if on_time_after is None or target is None
+        else on_time_after >= target,
+    }
