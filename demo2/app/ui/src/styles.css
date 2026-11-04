@@ -1,0 +1,23 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@theme {
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-primary: #0f172a;
+  --color-primary-foreground: #f8fafc;
+  --color-accent: #2272b4;
+  --color-destructive: #b91c1c;
+  /* Okabe-Ito, colorblind-safe status palette */
+  --color-on-time: #009e73;
+  --color-at-risk: #e69f00;
+  --color-late: #d55e00;
+  --color-delivered: #8a8f98;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-background text-foreground antialiased; font-family: ui-sans-serif, system-ui, sans-serif; }

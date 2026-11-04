@@ -1,0 +1,83 @@
+# Dispatch Control Tower (demo2): app + jobs + manager dashboard, bound to the
+# shared workshop data created by `data/setup.sh` (see data/README.md).
+#
+# Every workspace-specific value is a variable with NO default: pass them at
+# deploy time, e.g. `--var catalog=... --var schema=...`, or via
+# BUNDLE_VAR_<name> environment variables (see README.md).
+bundle:
+  name: dispatch-tower
+
+include:
+  - resources/*.yml
+
+sync:
+  # The built UI is gitignored but must ship with the app source.
+  include:
+    - app/src/dispatch_tower/static/**
+  exclude:
+    - app/ui/**
+    - app/tests/**
+    - app/.venv/**
+
+artifacts:
+  ui:
+    # Runs in `path`; builds the React UI into app/src/dispatch_tower/static before upload.
+    build: bun install --frozen-lockfile && bun run build
+    path: app/ui
+
+variables:
+  catalog:
+    description: UC catalog holding the gold tables (DBX_CATALOG from data/setup.sh)
+  schema:
+    description: UC schema holding the gold tables (DBX_SCHEMA); decision_labels is written here too
+  warehouse_id:
+    description: SQL warehouse id (DBX_WAREHOUSE_ID)
+  genie_space_id:
+    description: Genie space id created by data/setup.sh (GENIE_SPACE_ID)
+  lakebase_branch:
+    description: Lakebase branch path, projects/<id>/branches/<branch> (LAKEBASE_BRANCH)
+  lakebase_database:
+    description: Lakebase database path, projects/<id>/branches/<branch>/databases/<db> (LAKEBASE_DATABASE)
+  lakebase_endpoint:
+    description: Lakebase endpoint path, projects/<id>/branches/<branch>/endpoints/<ep> (LAKEBASE_ENDPOINT)
+  app_name:
+    description: Databricks App name (lowercase, hyphens)
+    default: dispatch-tower
+  pg_schema:
+    description: Postgres schema the app creates and owns inside the Lakebase database
+    default: dispatch
+  allow_role_switch:
+    description: Workshop toggle that lets one person switch between dispatcher and manager
+    default: "false"
+  allow_self_approval:
+    description: Let a manager approve their own expedite request (workshop convenience)
+    default: "false"
+  role_overrides:
+    # Apps env entries with an empty `value` are dropped before deploy, leaving
+    # `{name: ...}` only and failing with "Must specify value or valueFrom".
+    # Use the sentinel "none" (parsed as no overrides) instead of "".
+    description: Optional "user=manager,other=dispatcher" overrides; "none" means unset
+    default: "none"
+  label_readers:
+    description: UC principal granted SELECT on decision_labels by sync_decisions
+    default: account users
+
+targets:
+  dev:
+    mode: development
+    default: true
+    # WORKSHOP ONLY: any signed-in user can act as manager (X-Dispatch-Role) and a
+    # manager can approve their own request. Never copy these into another target.
+    variables:
+      allow_role_switch: "true"
+      allow_self_approval: "true"
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      app_name: dispatch-tower-prod
+      # Pinned off explicitly (tests/test_bundle_config.py guards this).
+      allow_role_switch: "false"
+      allow_self_approval: "false"
