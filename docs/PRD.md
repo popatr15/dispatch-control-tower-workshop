@@ -44,15 +44,17 @@ Why a dashboard cannot do this: no write-back, no per-user state, no workflow.
 ### demo1 (MVP, scoped down, apx, built with Genie app builder)
 
 1. **Delivery map**: today's stops as points colored by status (on-time / at-risk / late), depot markers, route lines. Geospatial is mandatory.
-2. **At-risk route list**: ranked routes with risk reason; click focuses the map.
-3. **Reassign stop**: dispatcher moves a stop to another route/vehicle; written to Lakebase with a reason code.
-4. **Exception log**: record exception (customer unavailable, weather, vehicle down) with reason and status.
-5. **Ask Genie**: embedded chat via Conversation API for "why" questions.
+
+Read-only: no route list, reassignment, exception log, or Genie chat (moved to demo2).
 
 ### demo2 (full scope, DAB)
 
 All of demo1 plus:
 
+2. **At-risk route list**: ranked routes with risk reason; click focuses the map.
+3. **Reassign stop**: dispatcher moves a stop to another route/vehicle; written to Lakebase with a reason code.
+4. **Exception log**: record exception (customer unavailable, weather, vehicle down) with reason and status.
+5. **Ask Genie**: embedded chat via Conversation API for "why" questions.
 6. **Map layers**: stop clusters, route lines, depot catchments, historical on-time layer; toggles and filters (depot, carrier, region, date).
 7. **Approval queue**: expedite-fee requests with approve/reject, approver identity, comment.
 8. **Live route state**: per-route state (planned, in progress, delayed, completed) in Lakebase, reflected across users.
@@ -73,7 +75,7 @@ All of demo1 plus:
 ## Success Criteria (measurable)
 
 - [ ] One script gives a new workspace user all gold tables and a Genie space in under 15 minutes.
-- [ ] Attendee builds demo1 from the PRP in Genie app builder in under 45 minutes; map renders and a reassignment persists across reload.
+- [ ] Attendee builds demo1 from the PRP in Genie app builder in under 45 minutes; map renders with colored stops, depots and route lines.
 - [ ] Dispatcher completes spot at-risk route -> reassign stop -> record reason in under 60 seconds.
 - [ ] demo2 deploys with `databricks bundle deploy`; every action appears in the audit trail (user, time, reason) and in the synced UC labeled-data table.
 - [ ] Genie answers the two canonical questions (depots missing SLA last week; late deliveries by carrier in the Northeast) correctly against seeded data.
@@ -86,7 +88,7 @@ All of demo1 plus:
 - **Not** training the routing model in the workshop; only producing labeled data.
 - **Not** customer-specific branding or data; brand-neutral and synthetic.
 - **Not** a mobile or driver-facing app.
-- demo1 **not** including approval queue, live state sync, or reverse sync (demo2 only).
+- demo1 is a **read-only map only**: no reassignment, exceptions, Genie, approval queue, live state sync, or reverse sync (demo2 only).
 
 ## App Architecture
 
