@@ -60,8 +60,8 @@ at-risk stop counts as on time on its new route when that route has room for it.
 2. **Why (15 s).** Click *Which depots missed SLA most last week?* Newark and Boston lead.
    Open *Show the SQL Genie wrote*. Optionally click the carrier question.
 3. **Act (25 s).** Five suggestions, all to R-010 (0% risk, room to spare). Click **Apply**,
-   note the prefilled reason `sla_risk`, **Confirm**. Repeat for two or three stops. Click
-   **Prove it**.
+   note the prefilled reason `sla_risk`, **Confirm**. Repeat for **all five** suggestions (risk
+   only drops below the 50% line on the fifth move: 61%, 57%, 54%, 50%, 46%). Click **Prove it**.
 4. **Prove (10 s).** Late stops 12 -> 7 after five moves, risk falls from 64% to 46%, below the 50% at-risk
    line, and Newark's on-time share climbs from 93% to 95%, past its 94% target. Your decisions are listed with the
    features captured. Run `sync_decisions`, then open the manager dashboard.

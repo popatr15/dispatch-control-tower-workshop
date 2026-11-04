@@ -68,12 +68,13 @@ type Features = Record<string, unknown>;
 
 function DecisionLog() {
   const me = useGetMeSuspense().data.data;
+  const { hubId, routeId } = useFlow();
   const rows = useListAuditSuspense({ actor: me.user, action: "stop.reassign", limit: 5 }).data.data;
   return (
     <section aria-label="Decision log" className="space-y-2">
       <div className="flex items-baseline justify-between">
         <h3 className="text-sm font-semibold">Your last {rows.length || 5} decisions</h3>
-        <Link to="/audit" className="text-xs text-accent underline">Full audit trail</Link>
+        <Link to="/audit" search={{ hub: hubId, route: routeId }} className="text-xs text-accent underline">Full audit trail</Link>
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No decisions recorded for {me.user} yet.</p>

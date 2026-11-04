@@ -19,11 +19,14 @@ a pure function and idempotent.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any
 
 from .effective import derive_risk
+
+log = logging.getLogger(__name__)
 
 Row = dict[str, Any]
 
@@ -70,7 +73,15 @@ def _place(stops: list[Row], late: int, at_risk: int, reason: str) -> None:
     ]
     items.sort(key=lambda it: (it[1], it[0] != "late"))
     slots = len(items)
-    if not slots or len(pool) < slots:
+    if not slots:
+        return
+    if len(pool) < slots:
+        log.warning(
+            "scenario: route %s has %d servable stops, needs %d; left unchanged",
+            stops[0]["route_id"] if stops else "?",
+            len(pool),
+            slots,
+        )
         return
     for i, (status, _) in enumerate(items):
         stop = pool[int((i + 0.5) * len(pool) / slots)]
@@ -132,9 +143,38 @@ def apply_scenario(
                 row["status"] = "in_progress"
         # Newark's other routes are full, so R-010 is the only place to move stops to.
         full = depot_city == HERO_CITY and route_number(rid) != TARGET_NUM
-        spare = 0 if full else SPARE_SLOTS
-        row["capacity_stops"] = max(int(row.get("capacity_stops") or 0), len(members) + spare)
         if full:
             row["capacity_stops"] = len(members)
+        else:
+            row["capacity_stops"] = max(
+                int(row.get("capacity_stops") or 0), len(members) + SPARE_SLOTS
+            )
         out_routes.append(row)
+    _check_hero(out_routes, city, by_route)
     return out_routes, out_stops
+
+
+def _check_hero(routes: list[Row], city: dict[str, Any], by_route: dict[str, list[Row]]) -> None:
+    """Warn loudly when the data cannot carry the hero story (wrong shape, not a silent no-op)."""
+    newark = {
+        route_number(r["route_id"]): r for r in routes if city.get(r["depot_id"]) == HERO_CITY
+    }
+    hero, target = newark.get(HERO_NUM), newark.get(TARGET_NUM)
+    if hero is None or target is None:
+        log.warning(
+            "scenario: expected routes %d and %d in %s, found %s; hero story will not render",
+            HERO_NUM,
+            TARGET_NUM,
+            HERO_CITY,
+            sorted(newark),
+        )
+        return
+    need = HERO_LATE + HERO_AT_RISK
+    have = len(by_route.get(hero["route_id"], []))
+    if have < need:
+        log.warning(
+            "scenario: hero route %s has %d stops, needs %d; hero story will not render",
+            hero["route_id"],
+            have,
+            need,
+        )

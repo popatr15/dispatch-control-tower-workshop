@@ -43,7 +43,6 @@ def test_hub_colors_one_red_one_amber_rest_green(hero):
     hubs = {h["depot_id"]: h["health"] for h in hero.get("/api/hubs").json()}
     assert hubs["DEPOT_NYC"] == "red"
     assert [k for k, v in hubs.items() if v == "amber"] == ["DEPOT_BOS"]
-    assert sorted(v for v in hubs.values()) == ["amber", "green"] * 0 + sorted(hubs.values())
     assert sum(v == "green" for v in hubs.values()) == 6
     newark = next(h for h in hero.get("/api/hubs").json() if h["depot_id"] == "DEPOT_NYC")
     assert newark["on_time_pct"] < newark["sla_target_pct"]
@@ -164,3 +163,25 @@ def test_moved_stop_stays_late_when_target_has_no_slack():
     assert out["moved_stops"] == 1 and out["projected_on_time"] == 0
     assert out["route_late_after"] == 0  # it left route A either way
     assert out["hub_on_time_after"] == out["hub_on_time_before"]
+
+
+def test_scenario_warns_when_data_cannot_carry_the_hero_story(caplog):
+    raw = build(TODAY)
+    # no Newark depot at all
+    depots = [{**d, "city": "Elsewhere"} for d in raw.depots]
+    with caplog.at_level("WARNING", logger="dispatch_tower.services.scenario"):
+        apply_scenario(depots, raw.routes, raw.stops)
+    assert "hero story will not render" in caplog.text
+    # hero route too small for 12 late + 8 at-risk
+    caplog.clear()
+    small = build(TODAY, routes_per_day=25, stops_per_route=10)
+    with caplog.at_level("WARNING", logger="dispatch_tower.services.scenario"):
+        apply_scenario(small.depots, small.routes, small.stops)
+    assert "needs 20" in caplog.text
+
+
+def test_scenario_is_quiet_on_the_hero_shape(caplog):
+    raw = build(TODAY, routes_per_day=25, stops_per_route=100)
+    with caplog.at_level("WARNING", logger="dispatch_tower.services.scenario"):
+        apply_scenario(raw.depots, raw.routes, raw.stops)
+    assert caplog.text == ""

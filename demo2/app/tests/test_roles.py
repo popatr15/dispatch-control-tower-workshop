@@ -1,7 +1,9 @@
 """Role gating: who may do what, and how the role is resolved."""
 
 import pytest
+from fastapi.testclient import TestClient
 
+from dispatch_tower.app import create_app
 from dispatch_tower.services.identity import (
     GroupLookup,
     Identity,
@@ -10,7 +12,7 @@ from dispatch_tower.services.identity import (
 )
 from dispatch_tower.services.rules import PERMISSIONS, Forbidden, require
 
-from .conftest import DISPATCHER, MANAGER, make_ctx, make_settings, open_stop
+from .conftest import DISPATCHER, MANAGER, TODAY, make_ctx, make_settings, open_stop
 
 
 def test_only_managers_decide_approvals():
@@ -165,3 +167,26 @@ def test_workshop_toggles_log_warning(caplog):
         enabled = warn_workshop_toggles(on)
     assert enabled == ["DISPATCH_ALLOW_ROLE_SWITCH", "DISPATCH_ALLOW_SELF_APPROVAL"]
     assert "WORKSHOP MODE" in caplog.text
+
+
+def test_dispatcher_without_role_switch_can_read_their_own_audit_rows():
+    """The Prove step's decision log runs as a plain dispatcher (no role picker, no switch)."""
+    ctx = make_ctx(make_settings(DISPATCH_ALLOW_ROLE_SWITCH=False))
+    client = TestClient(create_app(ctx, serve_static=False))
+    who = {"X-Forwarded-Email": "dispatcher-a"}  # no X-Dispatch-Role: default role applies
+    assert client.get("/api/me", headers=who).json()["role"] == "dispatcher"
+    stop = open_stop(ctx)
+    other = next(r for r in ctx.reader.routes(TODAY) if r["route_id"] != stop["route_id"])
+    resp = client.post(
+        f"/api/stops/{stop['stop_id']}/reassign",
+        headers=who,
+        json={"to_route_id": other["route_id"], "reason_code": "weather"},
+    )
+    assert resp.status_code == 200, resp.text
+    rows = client.get(
+        "/api/audit",
+        headers=who,
+        params={"actor": "dispatcher-a", "action": "stop.reassign", "limit": 5},
+    )
+    assert rows.status_code == 200
+    assert [a["entity_id"] for a in rows.json()] == [stop["stop_id"]]
