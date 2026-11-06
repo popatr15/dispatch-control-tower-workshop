@@ -34,16 +34,17 @@ Workshop collateral for **Databricks Apps + Lakebase**: one logistics app built 
    data/setup.sh --profile <profile> --catalog <catalog>
    ```
 
-   - **Creates:** gold Delta tables, a Genie space, and a Lakebase project (skip with `--skip-lakebase`).
+   - **Creates:** gold Delta tables, a Genie space, a Lakebase project (skip with `--skip-lakebase`), and **deploys the demo2 app** (skip with `--skip-app`; `--skip-lakebase` also skips it). Add `--warehouse-id <w>` to pin the warehouse and `--dry-run` to preview.
    - **Prints:** the app environment values, the verify command, and the path to `demo1/PRP.rendered.md`.
+   - **Result:** `data/setup.sh --profile <p> --catalog <c> --warehouse-id <w>` leaves the data and the app ready.
 3. **Verify:** run the `data/verify.sh ...` command that setup prints.
 4. **Then pick a demo:**
    - **demo1:** paste `demo1/PRP.rendered.md` into Genie Code.
-   - **demo2:** follow [`demo2/README.md`](demo2/README.md) (deploy, `seed_reset`, `sync_decisions`).
+   - **demo2:** already deployed by setup; see [`demo2/README.md`](demo2/README.md) to re-deploy or run it.
 
 ## Deploy demo2
 
-One command deploys the full reference app (UI build, bundle deploy, app start, `seed_reset`, `sync_decisions`):
+`data/setup.sh` runs this for you at the end. To re-deploy on its own (UI build, bundle deploy, app start, `seed_reset`, `sync_decisions`):
 
 ```bash
 scripts/deploy-demo2.sh --profile <profile> --values-file <file-with-setup-exports>

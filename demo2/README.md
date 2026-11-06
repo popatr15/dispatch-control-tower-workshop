@@ -171,7 +171,7 @@ creating its own.
 
 ## Deploy demo2
 
-From the repo root, `scripts/deploy-demo2.sh` runs the whole Deploy section above (UI build, validate, deploy, start the app, `seed_reset`, `sync_decisions`, wait for RUNNING):
+`data/setup.sh --profile <p> --catalog <c> --warehouse-id <w>` deploys the app automatically at the end (opt out with `--skip-app`). To re-deploy on its own, `scripts/deploy-demo2.sh` from the repo root runs the whole Deploy section above (UI build, validate, deploy, start the app, `seed_reset`, `sync_decisions`, wait for RUNNING):
 
 ```bash
 scripts/deploy-demo2.sh --profile <your-profile> --values-file <file-with-setup-exports>

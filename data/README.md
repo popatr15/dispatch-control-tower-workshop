@@ -4,7 +4,7 @@ This folder creates the shared data space for the Dispatch Control Tower worksho
 
 ## Catalog and Schema Selection
 
-Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one (no pre-filled guess). If `--schema`/`DBX_SCHEMA` is omitted, setup uses a per-user default like `workshop_dispatch_<local_part>_<email_hash>` (a short hash of the full email, so same local-part users on different domains do not collide).
+Run commands from the repo root. `--catalog` is required in non-interactive runs unless `DBX_CATALOG` is set. In an interactive terminal, omitting `--catalog` lists available non-sharing catalogs and prompts for one (no pre-filled guess). If `--schema`/`DBX_SCHEMA` is omitted, setup uses a per-user default (it only prompts `Schema [default]:` when both stdin and stdout are terminals, so piping through `tee` or running in CI never blocks) like `workshop_dispatch_<local_part>_<email_hash>` (a short hash of the full email, so same local-part users on different domains do not collide).
 
 Examples:
 
@@ -33,13 +33,19 @@ DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema 
    data/setup.sh --profile <your-profile> --catalog <catalog>
    ```
 
+   By default this also deploys the demo2 app (`scripts/deploy-demo2.sh`) with the values it just produced, so after one run the data **and** the app are ready. Pass `--warehouse-id <w>` to pin the SQL warehouse.
+
    Optional flags:
 
    ```bash
    --catalog <catalog>
    --warehouse-id <warehouse-id>
-   --skip-lakebase
+   --skip-lakebase   # also skips the app deploy: the bundle needs the Lakebase values
+   --skip-app        # data only (or SKIP_APP=1)
+   --dry-run         # preview data setup + app deploy; no auth, no workspace calls, no writes
    ```
+
+   If the app deploy fails, setup still prints the export block, exits non-zero and prints the exact `scripts/deploy-demo2.sh ...` command to retry only the app.
 
 4. Verify the deployment. Setup prints the exact `data/verify.sh ...` command (and the `DBX_SCHEMA` value). Reuse that printed schema, or export it first:
 
@@ -48,7 +54,7 @@ DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema 
    data/verify.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA"
    ```
 
-5. Tear down workshop-created assets only when you are sure you no longer need them (same catalog/schema as setup; omit `--schema` only if `DBX_SCHEMA` is already exported):
+5. Tear down workshop-created assets only when you are sure (teardown does **not** remove the deployed demo2 app; run `databricks bundle destroy` in `demo2/` first with the same `-t`, `--profile` and `--var` values as the deploy) you no longer need them (same catalog/schema as setup; omit `--schema` only if `DBX_SCHEMA` is already exported):
 
    ```bash
    data/setup.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA" --teardown

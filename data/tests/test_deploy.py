@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -161,7 +165,7 @@ def test_choose_catalog_has_no_prefilled_guess(monkeypatch) -> None:
         prompts.append(prompt)
         return "beta_other"
 
-    monkeypatch.setattr(deploy.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(deploy, "is_interactive", lambda: True)
     monkeypatch.setattr("builtins.input", fake_input)
     assert deploy.choose_catalog(workspace) == "beta_other"
     assert prompts == ["Catalog: "]
@@ -351,3 +355,111 @@ def test_teardown_keeps_lakebase_state_when_skip_lakebase(monkeypatch, tmp_path)
     kept = json.loads(deploy.state_path(config, owner).read_text(encoding="utf-8"))
     assert kept["lakebase_project"] == "projects/demo-project"
     assert kept["lakebase_created_by_setup"] is True
+
+
+def test_choose_schema_prompts_only_in_a_real_terminal(monkeypatch, capsys) -> None:
+    def fail_input(prompt: str) -> str:
+        raise AssertionError("must not prompt")
+
+    monkeypatch.setattr("builtins.input", fail_input)
+    # stdin is a TTY but stdout is piped (`| tee`): the prompt would be invisible.
+    monkeypatch.setattr(deploy.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(deploy.sys.stdout, "isatty", lambda: False)
+    assert deploy.choose_schema("dflt") == "dflt"
+    assert "dflt" in capsys.readouterr().out
+    # stdin not a TTY.
+    monkeypatch.setattr(deploy.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(deploy.sys.stdout, "isatty", lambda: True)
+    assert deploy.choose_schema("dflt") == "dflt"
+
+
+def test_choose_schema_enter_accepts_default_in_a_real_terminal(monkeypatch) -> None:
+    monkeypatch.setattr(deploy, "is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    assert deploy.choose_schema("dflt") == "dflt"
+    monkeypatch.setattr("builtins.input", lambda prompt: "mine")
+    assert deploy.choose_schema("dflt") == "mine"
+
+
+def test_schema_flag_or_env_never_prompts(monkeypatch) -> None:
+    def fail_choose(default: str) -> str:
+        raise AssertionError("must not prompt")
+
+    monkeypatch.setattr(deploy, "choose_schema", fail_choose)
+    monkeypatch.setattr(deploy, "owner_context", lambda w: OwnerContext("a@b.com", "a-b", "m", "/p"))
+    args = deploy.parse_args(["--profile", "p", "--catalog", "c", "--schema", "s"])
+    assert deploy.resolve_setup_config(args, object()).schema == "s"
+    monkeypatch.setenv("DBX_SCHEMA", "from_env")
+    args = deploy.parse_args(["--profile", "p", "--catalog", "c"])
+    assert deploy.resolve_setup_config(args, object()).schema == "from_env"
+
+
+def test_parse_args_new_flags() -> None:
+    args = deploy.parse_args(["--profile", "p", "--dry-run", "--env-out", "/tmp/x"])
+    assert args.dry_run is True
+    assert args.env_out == "/tmp/x"
+
+
+def test_dry_run_main_has_no_workspace_calls_and_writes_env_out(tmp_path, monkeypatch) -> None:
+    def fail_client(*args, **kwargs):
+        raise AssertionError("dry-run must not create a WorkspaceClient")
+
+    monkeypatch.setattr(deploy, "WorkspaceClient", fail_client)
+    out = tmp_path / "env"
+    deploy.main(["--profile", "p", "--catalog", "c", "--schema", "s", "--warehouse-id", "w", "--dry-run", "--env-out", str(out)])
+    text = out.read_text()
+    assert "export DBX_CATALOG=c\n" in text
+    assert "export DBX_WAREHOUSE_ID=w\n" in text
+    assert "export LAKEBASE_BRANCH=" in text
+
+
+SETUP_SH = Path(__file__).resolve().parents[1] / "setup.sh"
+
+
+def _run_setup_sh(*args: str, env_extra: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "SKIP_APP": "", "DBX_CATALOG": "", "DBX_SCHEMA": "", **(env_extra or {})}
+    return subprocess.run(
+        ["bash", str(SETUP_SH), "--profile", "dummy", "--catalog", "c", "--warehouse-id", "w", "--dry-run", *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=120,
+    )
+
+
+needs_bash = pytest.mark.skipif(shutil.which("bash") is None or shutil.which("uv") is None, reason="needs bash and uv")
+
+
+@needs_bash
+def test_setup_sh_dry_run_deploys_app_by_default() -> None:
+    result = _run_setup_sh()
+    assert result.returncode == 0, result.stderr
+    assert "scripts/deploy-demo2.sh" in result.stdout
+    assert "databricks bundle deploy" in result.stdout
+
+
+@needs_bash
+def test_setup_sh_skip_app_flag_and_env() -> None:
+    flag = _run_setup_sh("--skip-app")
+    assert flag.returncode == 0 and "Skipping app deploy" in flag.stdout
+    assert "bundle deploy" not in flag.stdout
+    env = _run_setup_sh(env_extra={"SKIP_APP": "1"})
+    assert env.returncode == 0 and "Skipping app deploy" in env.stdout
+    assert "bundle deploy" not in env.stdout
+
+
+@needs_bash
+def test_setup_sh_skip_lakebase_skips_app_with_message() -> None:
+    result = _run_setup_sh("--skip-lakebase")
+    assert result.returncode == 0, result.stderr
+    assert "Skipping app deploy: --skip-lakebase" in result.stdout
+    assert "bundle deploy" not in result.stdout
+
+
+@needs_bash
+def test_setup_sh_teardown_dry_run_does_not_deploy() -> None:
+    result = _run_setup_sh("--teardown")
+    assert result.returncode == 0, result.stderr
+    assert "bundle deploy" not in result.stdout
+    assert "bundle destroy" in result.stdout
