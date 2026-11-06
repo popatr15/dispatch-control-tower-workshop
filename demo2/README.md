@@ -169,6 +169,16 @@ The Lakebase project and Genie space are **inputs** (created by `data/setup.sh`
 and shared with demo1), so the bundle binds to them through variables instead of
 creating its own.
 
+## Deploy demo2
+
+From the repo root, `scripts/deploy-demo2.sh` runs the whole Deploy section above (UI build, validate, deploy, start the app, `seed_reset`, `sync_decisions`, wait for RUNNING):
+
+```bash
+scripts/deploy-demo2.sh --profile <your-profile> --values-file <file-with-setup-exports>
+```
+
+Run it with `--help` for flags (`--target`, `--skip-seed`, `--skip-sync`, `--dry-run`).
+
 ## Roles and identity
 
 The actor on every write is the signed-in user from the Apps forwarded headers

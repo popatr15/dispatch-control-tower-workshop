@@ -41,6 +41,18 @@ Workshop collateral for **Databricks Apps + Lakebase**: one logistics app built 
    - **demo1:** paste `demo1/PRP.rendered.md` into Genie Code.
    - **demo2:** follow [`demo2/README.md`](demo2/README.md) (deploy, `seed_reset`, `sync_decisions`).
 
+## Deploy demo2
+
+One command deploys the full reference app (UI build, bundle deploy, app start, `seed_reset`, `sync_decisions`):
+
+```bash
+scripts/deploy-demo2.sh --profile <profile> --values-file <file-with-setup-exports>
+```
+
+- **Values:** save the `export ...` lines printed by `data/setup.sh` to a file (do not commit it), or pass `--catalog`, `--schema`, `--warehouse-id`, etc., or the env vars.
+- **Useful flags:** `--target prod`, `--skip-seed`, `--skip-sync`, `--dry-run`, `--help`.
+- **Heads up:** `seed_reset` wipes app state; use `--skip-seed` to keep it.
+
 ## Architecture
 
 | Layer | Role |
