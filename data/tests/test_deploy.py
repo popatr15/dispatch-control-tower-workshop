@@ -437,6 +437,10 @@ def test_setup_sh_dry_run_deploys_app_by_default() -> None:
     assert result.returncode == 0, result.stderr
     assert "scripts/deploy-demo2.sh" in result.stdout
     assert "databricks bundle deploy" in result.stdout
+    # A fresh setup seeds and syncs; the standalone deploy script does not.
+    assert "bundle run seed_reset" in result.stdout
+    assert "bundle run sync_decisions" in result.stdout
+    assert "bun " not in result.stdout
 
 
 @needs_bash
@@ -463,3 +467,21 @@ def test_setup_sh_teardown_dry_run_does_not_deploy() -> None:
     assert result.returncode == 0, result.stderr
     assert "bundle deploy" not in result.stdout
     assert "bundle destroy" in result.stdout
+
+
+@needs_bash
+def test_standalone_deploy_script_is_app_only_by_default() -> None:
+    script = Path(__file__).resolve().parents[2] / "scripts" / "deploy-demo2.sh"
+    base = [
+        "bash", str(script), "--profile", "dummy", "--catalog", "c", "--schema", "s", "--warehouse-id", "w",
+        "--genie-space-id", "g", "--lakebase-branch", "b", "--lakebase-database", "d", "--lakebase-endpoint", "e",
+        "--dry-run",
+    ]
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("DBX_", "LAKEBASE_", "GENIE_"))}
+    default = subprocess.run(base, capture_output=True, text=True, env=env, check=False, timeout=60)
+    assert default.returncode == 0, default.stderr
+    assert "bundle deploy" in default.stdout
+    assert "seed_reset" not in default.stdout and "sync_decisions" not in default.stdout
+    assert "bun install" not in default.stdout and "bun run" not in default.stdout
+    opted = subprocess.run([*base, "--seed", "--sync"], capture_output=True, text=True, env=env, check=False, timeout=60)
+    assert "bundle run seed_reset" in opted.stdout and "bundle run sync_decisions" in opted.stdout

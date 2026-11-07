@@ -6,15 +6,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEMO2_DIR="$REPO_ROOT/demo2"
-UI_DIR="$DEMO2_DIR/app/ui"
 APP_KEY="dispatch_tower"
 
 usage() {
     cat <<'USAGE'
 Usage: scripts/deploy-demo2.sh --profile <databricks-cli-profile> [options]
 
-Builds the demo2 UI, validates and deploys the bundle, restarts the app, runs the
-seed_reset and sync_decisions jobs, then waits for the app to be RUNNING.
+Deploys ONLY the demo2 app: validates and deploys the bundle, starts/restarts the app,
+then waits for it to be RUNNING. It does not touch the data (use data/setup.sh for that),
+does not reset Lakebase demo state, and builds nothing locally: the UI ships prebuilt
+in demo2/app/src/dispatch_tower/static (see demo2/README.md "Rebuilding the UI").
+Needs only the Databricks CLI (and python3 to parse its JSON output).
 
 Required:
   --profile <profile>        Databricks CLI profile. Required; never inferred.
@@ -33,9 +35,10 @@ Options:
   --lakebase-endpoint <path> Bundle var lakebase_endpoint.  Env: LAKEBASE_ENDPOINT
   --app-name <name>          App name to poll. Default: resolved from `bundle summary`,
                              falling back to the bundle default for the target.
-  --skip-seed                Do not run the seed_reset job.
-  --skip-sync                Do not run the sync_decisions job.
-  --skip-build               Do not run bun install/build (the bundle artifact still builds).
+  --seed                     Also run the seed_reset job after the app starts. WARNING: this
+                             truncates Lakebase app state and drops decision_labels.
+  --sync                     Also run the sync_decisions job (after seed_reset, if both).
+  --skip-seed, --skip-sync   Accepted for compatibility; they cancel --seed / --sync.
   --timeout <seconds>        Wait for app RUNNING (default: 300).
   --dry-run                  Print every command that would run; execute nothing.
   -h, --help                 Show this help.
@@ -44,17 +47,16 @@ Value precedence (highest first): flag, --values-file, environment variable.
 All seven values are required; any missing value is listed in the error message.
 
 Order of operations (matches demo2/README.md):
-  1. preflight (databricks CLI, auth for the profile, bun)
-  2. bun install && bun run build in demo2/app/ui
-  3. databricks bundle validate, then bundle deploy
-  4. databricks bundle run dispatch_tower   (start/restart the app)
-  5. databricks bundle run seed_reset       (unless --skip-seed)
-  6. databricks bundle run sync_decisions   (unless --skip-sync)
-  7. wait for the app to be RUNNING, print its URL and how to check /api/routes
+  1. preflight (databricks CLI, auth for the profile)
+  2. databricks bundle validate, then bundle deploy
+  3. databricks bundle run dispatch_tower   (start/restart the app)
+  4. databricks bundle run seed_reset       (only with --seed)
+  5. databricks bundle run sync_decisions   (only with --sync)
+  6. wait for the app to be RUNNING, print its URL and how to check /api/routes
 
 The dev target is workshop-only and NOT secure (see demo2/README.md).
-Re-running is safe: deploy and start are idempotent. seed_reset TRUNCATES app state
-and drops decision_labels, so pass --skip-seed to keep existing demo data.
+Re-running is safe: deploy and start are idempotent. The default (app only) never
+resets demo state; seed_reset only runs when you pass --seed.
 USAGE
 }
 
@@ -62,9 +64,8 @@ PROFILE=""
 TARGET="dev"
 VALUES_FILE=""
 APP_NAME=""
-SKIP_SEED=0
-SKIP_SYNC=0
-SKIP_BUILD=0
+RUN_SEED=0
+RUN_SYNC=0
 DRY_RUN=0
 TIMEOUT=300
 
@@ -100,9 +101,10 @@ while [[ $# -gt 0 ]]; do
         --lakebase-endpoint)  require_value "$1" "${2:-}"; F_LAKEBASE_ENDPOINT="$2"; shift 2 ;;
         --app-name)           require_value "$1" "${2:-}"; APP_NAME="$2"; shift 2 ;;
         --timeout)            require_value "$1" "${2:-}"; TIMEOUT="$2"; shift 2 ;;
-        --skip-seed)          SKIP_SEED=1; shift ;;
-        --skip-sync)          SKIP_SYNC=1; shift ;;
-        --skip-build)         SKIP_BUILD=1; shift ;;
+        --seed)               RUN_SEED=1; shift ;;
+        --sync)               RUN_SYNC=1; shift ;;
+        --skip-seed)          RUN_SEED=0; shift ;;
+        --skip-sync)          RUN_SYNC=0; shift ;;
         --dry-run)            DRY_RUN=1; shift ;;
         -h|--help)            usage; exit 0 ;;
         *)
@@ -226,10 +228,6 @@ if ! command -v databricks >/dev/null 2>&1; then
     echo "Error: databricks CLI is required on PATH." >&2
     [[ "$DRY_RUN" -eq 1 ]] || exit 1
 fi
-if ! command -v bun >/dev/null 2>&1 && [[ "$SKIP_BUILD" -eq 0 ]]; then
-    echo "Error: bun is required to build the UI (install from https://bun.sh)." >&2
-    [[ "$DRY_RUN" -eq 1 ]] || exit 1
-fi
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is required to parse CLI JSON output." >&2
     [[ "$DRY_RUN" -eq 1 ]] || exit 1
@@ -256,19 +254,7 @@ else
 fi
 echo "Target:    $TARGET"
 
-# --- 2. Build the frontend ----------------------------------------------------
-if [[ "$SKIP_BUILD" -eq 1 ]]; then
-    step "Skipping UI build (--skip-build)"
-else
-    step "Build UI ($UI_DIR)"
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-        echo "[dry-run] (cd $UI_DIR && bun install --frozen-lockfile && bun run build)"
-    else
-        (cd "$UI_DIR" && run bun install --frozen-lockfile && run bun run build)
-    fi
-fi
-
-# --- 3. Validate and deploy ---------------------------------------------------
+# --- 2. Validate and deploy ---------------------------------------------------
 cd "$DEMO2_DIR"
 
 step "Validate bundle"
@@ -279,25 +265,21 @@ run databricks bundle validate "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}"
 step "Deploy bundle"
 run databricks bundle deploy "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}"
 
-# --- 4. Start / restart the app -----------------------------------------------
+# --- 3. Start / restart the app -----------------------------------------------
 step "Start app ($APP_KEY)"
 run databricks bundle run "$APP_KEY" "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}"
 
-# --- 5. Jobs (README order: seed_reset, then sync_decisions) -------------------
-if [[ "$SKIP_SEED" -eq 1 ]]; then
-    step "Skipping seed_reset (--skip-seed)"
-else
+# --- 4. Optional jobs (README order: seed_reset, then sync_decisions) -------------------
+if [[ "$RUN_SEED" -eq 1 ]]; then
     step "Run job seed_reset (resets demo state)"
     run databricks bundle run seed_reset "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}"
 fi
-if [[ "$SKIP_SYNC" -eq 1 ]]; then
-    step "Skipping sync_decisions (--skip-sync)"
-else
+if [[ "$RUN_SYNC" -eq 1 ]]; then
     step "Run job sync_decisions"
     run databricks bundle run sync_decisions "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}"
 fi
 
-# --- 6. Smoke test ------------------------------------------------------------
+# --- 5. Smoke test ------------------------------------------------------------
 step "Smoke test"
 if [[ -z "$APP_NAME" && "$DRY_RUN" -eq 0 ]]; then
     APP_NAME="$(databricks bundle summary "${BUNDLE_ARGS[@]}" "${VAR_ARGS[@]}" -o json 2>/dev/null \

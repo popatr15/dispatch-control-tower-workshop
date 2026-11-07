@@ -13,8 +13,9 @@ node_modules/
 .tanstack/
 ui/dist/
 
-# Built UI copied into the app package at build time
-app/src/dispatch_tower/static/
+# NOTE: app/src/dispatch_tower/static/ (the built UI) is intentionally COMMITTED so
+# `bundle deploy` needs no local Node/bun. Rebuild with `bun run build` in app/ui
+# whenever the UI source changes (see README "Rebuilding the UI").
 
 # Bundles / env
 .databricks/

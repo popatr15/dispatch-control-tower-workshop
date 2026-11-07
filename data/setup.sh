@@ -10,7 +10,8 @@ usage() {
 Usage: data/setup.sh --profile <databricks-cli-profile> [options]
 
 Creates the shared workshop data and, by default, deploys the demo2 app
-(scripts/deploy-demo2.sh) so data AND app are ready after one run.
+(scripts/deploy-demo2.sh --seed --sync) so data AND app are ready after one run.
+To push only the app when the data already exists, run scripts/deploy-demo2.sh.
 
 Required:
   --profile <profile>       Databricks CLI profile. Required; never inferred.
@@ -189,6 +190,8 @@ fi
 
 DEPLOY_ARGS=(
   --profile "$PROFILE"
+  --seed
+  --sync
   --catalog "$(env_value DBX_CATALOG)"
   --schema "$(env_value DBX_SCHEMA)"
   --warehouse-id "$(env_value DBX_WAREHOUSE_ID)"

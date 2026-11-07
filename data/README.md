@@ -33,7 +33,7 @@ DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema 
    data/setup.sh --profile <your-profile> --catalog <catalog>
    ```
 
-   By default this also deploys the demo2 app (`scripts/deploy-demo2.sh`) with the values it just produced, so after one run the data **and** the app are ready. Pass `--warehouse-id <w>` to pin the SQL warehouse.
+   By default this also deploys the demo2 app (`scripts/deploy-demo2.sh --seed --sync`, so a fresh install gets seeded) with the values it just produced, so after one run the data **and** the app are ready. If the data already exists and you only need to push the app, run `scripts/deploy-demo2.sh` directly (app only; no data steps, no seed). Deploying needs no local `bun`/Node: the UI ships prebuilt. Pass `--warehouse-id <w>` to pin the SQL warehouse.
 
    Optional flags:
 
@@ -54,7 +54,7 @@ DBX_CATALOG=<catalog> data/setup.sh --profile <your-profile>  # per-user schema 
    data/verify.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA"
    ```
 
-5. Tear down workshop-created assets only when you are sure (teardown does **not** remove the deployed demo2 app; run `databricks bundle destroy` in `demo2/` first with the same `-t`, `--profile` and `--var` values as the deploy) you no longer need them (same catalog/schema as setup; omit `--schema` only if `DBX_SCHEMA` is already exported):
+5. Tear down workshop-created assets only when you are sure you no longer need them (same catalog/schema as setup; omit `--schema` only if `DBX_SCHEMA` is already exported). Teardown does **not** remove the deployed demo2 app; run `databricks bundle destroy` in `demo2/` first with the same `-t`, `--profile` and `--var` values as the deploy:
 
    ```bash
    data/setup.sh --profile <your-profile> --catalog <catalog> --schema "$DBX_SCHEMA" --teardown
