@@ -10,20 +10,14 @@ bundle:
 include:
   - resources/*.yml
 
+# The built UI (app/src/dispatch_tower/static) is committed, so `bundle deploy` builds
+# nothing locally and needs no Node/bun. After changing app/ui, run `bun run build`
+# there and commit the result.
 sync:
-  # The built UI is gitignored but must ship with the app source.
-  include:
-    - app/src/dispatch_tower/static/**
   exclude:
     - app/ui/**
     - app/tests/**
     - app/.venv/**
-
-artifacts:
-  ui:
-    # Runs in `path`; builds the React UI into app/src/dispatch_tower/static before upload.
-    build: bun install --frozen-lockfile && bun run build
-    path: app/ui
 
 variables:
   catalog:

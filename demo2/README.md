@@ -73,7 +73,7 @@ Reset between runs: `databricks bundle run seed_reset -t dev --profile <your-pro
 
 ```
 demo2/
-├── databricks.yml            # bundle: variables, targets dev/prod, UI build artifact
+├── databricks.yml            # bundle: variables, targets dev/prod
 ├── resources/
 │   ├── app.yml               # app + bindings (warehouse, Lakebase, Genie) + UC table grants
 │   ├── jobs.yml              # sync_decisions (hourly), seed_reset (on demand)
@@ -90,7 +90,9 @@ demo2/
 
 1. Databricks CLI (v1.x) authenticated to the target workspace. Every command
    below passes `--profile <your-profile>` explicitly.
-2. `uv`, `bun`, and Python 3.11+ locally (the bundle builds the UI during deploy).
+2. Deploying needs only the CLI (and `python3` if you use `scripts/deploy-demo2.sh`).
+   The UI ships prebuilt in the repo, so there is no local build. `uv`, `bun` and
+   Python 3.11+ are needed only for local development and the validation gates.
 3. The shared workshop data. Run the setup script from the repo root, choosing
    your catalog (see `../data/README.md`):
 
@@ -127,8 +129,8 @@ databricks bundle run dispatch_tower -t dev --profile <your-profile>   # start t
 databricks bundle run seed_reset     -t dev --profile <your-profile>   # clean demo state
 ```
 
-`deploy` builds the UI (`bun install && bun run build` in `app/ui`) into
-`app/src/dispatch_tower/static` and uploads the app source. The app creates and
+`deploy` uploads the app source, including the prebuilt UI in
+`app/src/dispatch_tower/static` (no local build). The app creates and
 owns its own Postgres schema (`dispatch`, variable `pg_schema`) inside the
 Lakebase database on first start, so it never collides with the tables
 `data/setup.sh` created in `public`. Start the app once before running either job.
@@ -171,13 +173,23 @@ creating its own.
 
 ## Deploy demo2
 
-From the repo root, `scripts/deploy-demo2.sh` runs the whole Deploy section above (UI build, validate, deploy, start the app, `seed_reset`, `sync_decisions`, wait for RUNNING):
+The data is usually already in the workspace, so the common case is **pushing only the app**. `data/setup.sh --profile <p> --catalog <c> --warehouse-id <w>` does that automatically at the end of a fresh setup (opt out with `--skip-app`). To deploy or re-deploy just the app, run `scripts/deploy-demo2.sh` from the repo root (validate, deploy, start the app, wait for RUNNING; no data steps, no local build):
 
 ```bash
 scripts/deploy-demo2.sh --profile <your-profile> --values-file <file-with-setup-exports>
 ```
 
-Run it with `--help` for flags (`--target`, `--skip-seed`, `--skip-sync`, `--dry-run`).
+Run it with `--help` for flags. `seed_reset` and `sync_decisions` are **opt-in** (`--seed`, `--sync`) because `seed_reset` truncates the Lakebase demo state and drops `decision_labels`; the default never resets anything. Other flags: `--target`, `--dry-run`.
+
+## Rebuilding the UI
+
+The built UI in `app/src/dispatch_tower/static` is **committed** so `bundle deploy` needs no Node/bun and no build step. After changing anything in `app/ui`, rebuild and commit it:
+
+```bash
+cd demo2/app/ui && bun install --frozen-lockfile && bun run build
+```
+
+Then stage `demo2/app/src/dispatch_tower/static` with the rest of your change.
 
 ## Roles and identity
 

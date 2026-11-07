@@ -32,3 +32,11 @@ def test_only_dev_turns_toggles_on():
         overrides = (cfg or {}).get("variables") or {}
         if target != "dev":
             assert all(overrides.get(n, "false") == "false" for n in WORKSHOP_TOGGLES), target
+
+
+def test_deploy_builds_nothing_locally_and_ships_prebuilt_ui():
+    """`bundle deploy` must not need bun/Node: the built UI is committed."""
+    assert "artifacts" not in _bundle()
+    static = BUNDLE.parent / "app" / "src" / "dispatch_tower" / "static"
+    assert (static / "index.html").is_file()
+    assert any((static / "assets").glob("*.js"))

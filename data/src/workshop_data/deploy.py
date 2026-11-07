@@ -115,9 +115,18 @@ def table_name(config: Config, table: str) -> str:
     return f"{quote_ident(config.catalog)}.{quote_ident(config.schema)}.{quote_ident(table)}"
 
 
+def is_interactive() -> bool:
+    """True only when both stdin and stdout are terminals.
+
+    With stdout piped (for example `| tee`), input() does not flush its prompt,
+    so the user cannot see it. Treat that as non-interactive and use defaults.
+    """
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def choose_catalog(w: WorkspaceClient) -> str:
     catalogs = sorted(catalog.name for catalog in w.catalogs.list() if getattr(catalog, "catalog_type", "") != "DELTASHARING_CATALOG")
-    if not sys.stdin.isatty():
+    if not is_interactive():
         raise RuntimeError(
             "--catalog is required when setup is run non-interactively. "
             "Pass --catalog or set DBX_CATALOG."
@@ -132,7 +141,8 @@ def choose_catalog(w: WorkspaceClient) -> str:
 
 
 def choose_schema(default: str) -> str:
-    if not sys.stdin.isatty():
+    if not is_interactive():
+        print(f"Using default schema: {default} (non-interactive; pass --schema to override)")
         return default
     return input(f"Schema [{default}]: ").strip() or default
 
@@ -689,7 +699,7 @@ def ensure_lakebase(config: Config, owner: OwnerContext, state: dict[str, Any]) 
     }
 
 
-def setup(config: Config, w: WorkspaceClient) -> None:
+def setup(config: Config, w: WorkspaceClient, env_out: Path | None = None) -> None:
     owner = owner_context(w)
     state = read_state(config, owner)
     warehouse_id = select_warehouse(w, config.warehouse_id)
@@ -734,6 +744,7 @@ def setup(config: Config, w: WorkspaceClient) -> None:
     }
     for key, value in summary.items():
         print(f"export {key}={value}")
+    write_env_out(env_out, summary)
     print(f"Rendered PRP: {rendered_prp}")
     print("\nVerify with:")
     print(
@@ -741,6 +752,50 @@ def setup(config: Config, w: WorkspaceClient) -> None:
         f"--schema {config.schema}"
     )
     print(f"Or: export DBX_SCHEMA={config.schema}")
+
+
+def write_env_out(env_out: Path | None, summary: dict[str, str]) -> None:
+    """Write the `export` lines to a file so setup.sh can hand them to the app deploy."""
+    if env_out is None:
+        return
+    env_out.write_text(
+        "".join(f"export {key}={value}\n" for key, value in summary.items()),
+        encoding="utf-8",
+    )
+
+
+def dry_run(args: argparse.Namespace) -> None:
+    """Print the plan and emit placeholder values. No auth, no workspace calls, no writes."""
+    catalog = args.catalog or os.environ.get("DBX_CATALOG") or "<catalog>"
+    schema = args.schema or os.environ.get("DBX_SCHEMA") or "<per-user default schema>"
+    warehouse = args.warehouse_id or "<warehouse-id>"
+    action = "teardown" if args.teardown else "setup"
+    print(f"[dry-run] data {action}: profile={args.profile} catalog={catalog} schema={schema} warehouse={warehouse}")
+    if args.teardown:
+        print("[dry-run] would drop owned gold tables, staged files, the Genie space and (if created by setup) the Lakebase project.")
+        return
+    print("[dry-run] would create UC objects, load gold tables, upsert the Genie space"
+          + ("" if args.skip_lakebase else ", create the Lakebase project"))
+    summary = {
+        "DBX_CATALOG": catalog,
+        "DBX_SCHEMA": schema,
+        "DBX_WAREHOUSE_ID": warehouse,
+        "GENIE_SPACE_ID": "<genie-space-id>",
+    }
+    if args.skip_lakebase:
+        summary["LAKEBASE_SKIPPED"] = "true"
+    else:
+        summary.update(
+            {
+                "LAKEBASE_BRANCH": "projects/<project-id>/branches/<branch-id>",
+                "LAKEBASE_ENDPOINT": "projects/<project-id>/branches/<branch-id>/endpoints/<endpoint-id>",
+                "LAKEBASE_DATABASE": "projects/<project-id>/branches/<branch-id>/databases/<database-id>",
+            }
+        )
+    print("[dry-run] setup would print:")
+    for key, value in summary.items():
+        print(f"export {key}={value}")
+    write_env_out(Path(args.env_out) if args.env_out else None, summary)
 
 
 def teardown(config: Config, w: WorkspaceClient) -> None:
@@ -810,19 +865,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--warehouse-id")
     parser.add_argument("--skip-lakebase", action="store_true")
     parser.add_argument("--teardown", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Print the plan; no workspace calls or writes")
+    parser.add_argument("--env-out", help="Write the printed export lines to this file (used by setup.sh)")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    if args.dry_run:
+        dry_run(args)
+        return
     if shutil.which("databricks") is None:
         raise SystemExit("Databricks CLI is required but was not found on PATH.")
-    args = parse_args(argv)
     w = WorkspaceClient(profile=args.profile)
     config = resolve_setup_config(args, w)
     if args.teardown:
         teardown(config, w)
     else:
-        setup(config, w)
+        setup(config, w, Path(args.env_out) if args.env_out else None)
 
 
 if __name__ == "__main__":
